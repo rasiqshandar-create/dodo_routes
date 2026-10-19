@@ -1,0 +1,11 @@
+{
+  "name": "Dodo Driver Pay",
+  "short_name": "Driver Pay",
+  "description": "Calculate Dodo driver payments and upload them to Google Sheets.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#1f3a5f",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
