@@ -4,11 +4,10 @@
  * Install (once):
  *   1. Open the "Dodo Routes" spreadsheet (ID below) that receives the daily tabs.
  *   2. Extensions → Apps Script. Replace Code.gs with this file and save.
- *   3. Project Settings → Script properties → add  UPLOAD_TOKEN = <any long secret>.
- *   4. Deploy → New deployment → type "Web app":
- *        Execute as: Me      Who has access: Anyone
- *      Copy the Web app URL.
- *   5. In the Dodo Driver Pay tool → Settings, paste the URL and the same token.
+ *   3. Deploy → New deployment → type "Web app":
+ *        Execute as: Me      Who has access: Anyone      → Deploy → Authorise.
+ *   4. In the editor choose the function "setup" → Run. Open the
+ *      "one-click connect link" from the Execution log — the tool is now connected.
  *
  * The tool sends JSON as text/plain (no CORS preflight). Actions:
  *   ping   → { ok, spreadsheetName, spreadsheetUrl }
@@ -21,6 +20,34 @@ var DEFAULT_SPREADSHEET_ID = '1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk';
 
 var HEADER_BG = '#1f3a5f';
 var SECTION_BG = '#e8eef6';
+
+// Where the tool is hosted (GitHub Pages). The connect link opens this with the settings attached.
+var APP_URL = 'https://rasiqshandar-create.github.io/dodo_routes/';
+
+/**
+ * Run once from the Apps Script editor AFTER deploying the web app (select "setup" → Run).
+ * Creates the upload token if needed and logs a one-click connect link for the tool.
+ */
+function setup() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('UPLOAD_TOKEN');
+  if (!token) {
+    token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+    props.setProperty('UPLOAD_TOKEN', token);
+  }
+  var ss = getSpreadsheet_();
+  var url = ScriptApp.getService().getUrl();
+  if (!url) {
+    Logger.log('Deploy the web app first (Deploy → New deployment → Web app), then run setup again.');
+    return;
+  }
+  var payload = Utilities.base64EncodeWebSafe(JSON.stringify({ u: url, t: token }));
+  Logger.log('Spreadsheet: ' + ss.getName());
+  Logger.log('Web app URL: ' + url);
+  Logger.log('Upload token: ' + token);
+  Logger.log('ONE-CLICK CONNECT LINK (open it, bookmark it, share it with your team):');
+  Logger.log(APP_URL + '#connect=' + payload);
+}
 
 function doGet() {
   return json_({ ok: true, service: 'dodo-driver-pay', hint: 'POST JSON to this URL' });

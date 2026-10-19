@@ -48,26 +48,29 @@ Base, per-mile, minimum and band size can be edited in **Settings → Pricing** 
 
 Road distances from OpenStreetMap can differ slightly from the distances Evermile shows. For exact parity, include the distance column in the export. Postcode and distance lookups are cached on the device, so repeat postcodes work offline.
 
-## One-time setup: Google Sheets connection (~5 min)
+## One-time setup (about 5 minutes, two parts)
 
-1. Open the **Dodo Routes** spreadsheet: <https://docs.google.com/spreadsheets/d/1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk/edit> (its ID is already set in `Code.gs`).
-2. **Extensions → Apps Script.** Paste the contents of [`apps-script/Code.gs`](apps-script/Code.gs) and save.
-3. **Project Settings → Script properties → Add**: `UPLOAD_TOKEN` = a long random secret.
-   (Optional: `SPREADSHEET_ID` to send tabs to a different spreadsheet.)
-4. **Deploy → New deployment → Web app**. Set *Execute as*: **Me** and *Who has access*: **Anyone**. Authorise, then copy the **Web app URL**.
-5. In Dodo Driver Pay, open **Settings**, paste the URL and token, then click **Test connection**. You should see "✓ Connected to …".
+### A. Put the tool online (GitHub Pages)
+1. In this repo, open **Settings → Pages**.
+2. Under **Build and deployment**, set Source to **Deploy from a branch**, Branch to **`main`**, folder to **`/ (root)`**, then **Save**.
+3. After about a minute the tool is live at **https://rasiqshandar-create.github.io/dodo_routes/**.
 
-The token stops anyone else who finds the URL from writing to the sheet. If you update `Code.gs` later, use **Deploy → Manage deployments → Edit → New version** so the URL stays the same.
+> Pages on a **private** repo needs GitHub Pro or Team. On the free plan, either make the repo public (it contains no secrets or customer data) or drag the folder onto <https://app.netlify.com/drop>. If you host elsewhere, change `APP_URL` at the top of `apps-script/Code.gs`.
 
-## Hosting (access from anywhere)
+### B. Connect the Dodo Routes sheet
+1. Open **Dodo Routes**: <https://docs.google.com/spreadsheets/d/1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk/edit>
+2. **Extensions → Apps Script**. Delete what's there, paste in [`apps-script/Code.gs`](apps-script/Code.gs), then press **Save**.
+3. **Deploy → New deployment →** ⚙ **Web app**. Set *Execute as*: **Me** and *Who has access*: **Anyone**, then **Deploy** and **Authorise access** (choose your Google account → *Advanced* → *Go to project* → *Allow*).
+4. In the editor's function dropdown pick **`setup`**, then click **Run**.
+5. Open **View → Execution log** and click the **ONE-CLICK CONNECT LINK**. The tool opens already connected. Bookmark it, and share it with anyone who should be able to upload.
 
-It's a static site of 7 files, so any static host works:
+`setup()` creates the secret upload token automatically, so only people with the link can write to the sheet. If you change `Code.gs` later, use **Deploy → Manage deployments → Edit → Version: New version** so the URL stays the same. To revoke access, delete the `UPLOAD_TOKEN` script property and run `setup` again.
 
-- **Netlify Drop** (fastest): go to <https://app.netlify.com/drop> and drag this folder in. You get an https URL in seconds.
-- **GitHub Pages**: push the folder to a repo, then *Settings → Pages → Deploy from branch*.
-- **Local/offline only**: open `index.html` directly. Everything works except installation as an app.
+You can also connect by hand: **Settings** in the tool → paste the Web app URL and token → **Test connection**.
 
-Once opened over https, the app is cached for offline use. In Chrome/Edge you can **Install** it (address-bar icon) so it opens like a desktop or phone app.
+## Offline use
+
+Once opened over https, the app is cached for offline use. In Chrome/Edge you can **Install** it (address-bar icon) so it opens like a desktop or phone app. Opening `index.html` directly from a downloaded copy also works.
 
 ## Data and privacy
 
