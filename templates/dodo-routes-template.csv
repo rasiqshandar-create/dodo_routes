@@ -1,0 +1,3 @@
+Delivery Date,Order ID,Merchant Name,Merchant Phone,Pickup Address,Pickup Slot,Customer Name,Customer Phone,Customer Address,Delivery Slot,Delivery Instructions,Parcel Count,Driver Name,Vehicle Type,Distance (Miles),Stop Sequence,Extra Charge (£),Remarks
+19/10/2026,ORD1001,Sample Bakery Co,020 7946 0101,"12 Market Street, London E1 6AA",08:00-09:00,Alex Smith,07700 900101,"24 Elm Grove, London N1 9AA",10:00-12:00,Leave with concierge,2,Driver A,Car,6.40,1,,
+19/10/2026,ORD1002,Example Florist,020 7946 0102,"4 High Road, London SW18 1AA",08:30-09:30,Sam Jones,07700 900102,"3 Station Road, London SE1 7AA",12:00-14:00,Call on arrival,1,Driver A,Car,4.10,2,3.50,Waited 15 min at pickup

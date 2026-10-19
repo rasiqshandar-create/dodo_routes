@@ -3,378 +3,288 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dodo Driver Pay</title>
-<meta name="description" content="Calculate Dodo driver payments per delivery, route and driver, and upload to Google Sheets.">
+<title>Dodo Routes</title>
+<meta name="description" content="Driver-wise pickup and delivery sheets with Dodo driver pay, uploaded to Google Sheets in one click.">
 <meta name="theme-color" content="#1f3a5f">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <style>
 :root {
-  --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f0f2f5; --border: #dde1e7;
-  --text: #17202b; --muted: #5c6776; --accent: #1f5fa8; --accent-ink: #ffffff;
-  --accent-soft: #e6effa; --ok: #1d7a46; --ok-soft: #e3f4ea; --warn: #9a5b00; --warn-soft: #fdf1dc;
-  --bad: #b3261e; --bad-soft: #fbe6e4; --radius: 10px;
-  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  --bg: #f4f5f7; --surface: #ffffff; --surface-2: #f1f3f6; --border: #e0e4ea;
+  --text: #16202c; --muted: #5d6877; --accent: #1f5fa8; --accent-ink: #ffffff; --accent-soft: #e7eff9;
+  --ok: #1d7a46; --ok-soft: #e3f4ea; --warn: #9a5b00; --warn-soft: #fdf1dc; --bad: #b3261e; --bad-soft: #fbe6e4;
+  --radius: 12px; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.07);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0f1419; --surface: #171d24; --surface-2: #1e2630; --border: #2c3642;
-    --text: #e6eaef; --muted: #98a3b1; --accent: #6aa8f0; --accent-ink: #0b1220;
-    --accent-soft: #1a2a3e; --ok: #5cc98a; --ok-soft: #15291e; --warn: #f0b45a; --warn-soft: #2e2413;
-    --bad: #f08a80; --bad-soft: #321a18; --shadow: none; color-scheme: dark;
+    --bg: #0f1419; --surface: #171d24; --surface-2: #1f2730; --border: #2c3642; --text: #e6eaef; --muted: #98a3b1;
+    --accent: #6aa8f0; --accent-ink: #0b1220; --accent-soft: #1a2a3e; --ok: #5cc98a; --ok-soft: #15291e;
+    --warn: #f0b45a; --warn-soft: #2e2413; --bad: #f08a80; --bad-soft: #321a18; --shadow: none; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0f1419; --surface: #171d24; --surface-2: #1e2630; --border: #2c3642;
-  --text: #e6eaef; --muted: #98a3b1; --accent: #6aa8f0; --accent-ink: #0b1220;
-  --accent-soft: #1a2a3e; --ok: #5cc98a; --ok-soft: #15291e; --warn: #f0b45a; --warn-soft: #2e2413;
-  --bad: #f08a80; --bad-soft: #321a18; --shadow: none; color-scheme: dark;
+  --bg: #0f1419; --surface: #171d24; --surface-2: #1f2730; --border: #2c3642; --text: #e6eaef; --muted: #98a3b1;
+  --accent: #6aa8f0; --accent-ink: #0b1220; --accent-soft: #1a2a3e; --ok: #5cc98a; --ok-soft: #15291e;
+  --warn: #f0b45a; --warn-soft: #2e2413; --bad: #f08a80; --bad-soft: #321a18; --shadow: none; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body {
-  background: var(--bg); color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
+body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); }
-.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.hidden { display: none !important; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
-.hidden { display: none !important; }
-
-/* Header */
-header.top {
-  position: sticky; top: 0; z-index: 20; background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-.top-inner { max-width: 1400px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; margin-right: auto; }
-.brand img { width: 28px; height: 28px; }
-.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 550; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
-.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.pill.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
-.pill.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
-.pill.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
-
-nav.steps { max-width: 1400px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
-nav.steps button {
-  border: 0; background: none; color: var(--muted); padding: 10px 12px; font: inherit; font-weight: 550;
-  border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap;
-}
-nav.steps button .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--surface-2); margin-right: 6px; font-size: 12px; }
-nav.steps button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
-nav.steps button[aria-selected="true"] .n { background: var(--accent); color: var(--accent-ink); }
-
-main { max-width: 1400px; margin: 0 auto; padding: 16px 16px 120px; }
-section.panel { display: none; }
-section.panel.active { display: block; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
-.card h2 { font-size: 15px; margin: 0 0 4px; }
-.card h3 { font-size: 14px; margin: 0 0 8px; }
-.card p.lede { margin: 0 0 12px; color: var(--muted); }
-.grid { display: grid; gap: 12px; }
-.grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-.grid.map { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-
-label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 550; }
-input, select, textarea {
-  font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
-  border-radius: 7px; padding: 6px 8px; min-width: 0;
-}
-input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-weight: 600;
-  border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 7px 12px;
-  border-radius: 8px; cursor: pointer; white-space: nowrap; text-decoration: none;
-}
-.btn:hover { background: var(--surface-2); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.btn.primary:hover { filter: brightness(1.07); }
-.btn.ghost { border-color: transparent; background: transparent; }
-.btn.danger { color: var(--bad); }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
+.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 
-.drop {
-  border: 2px dashed var(--border); border-radius: var(--radius); padding: 36px 16px; text-align: center;
-  background: var(--surface-2); cursor: pointer; transition: border-color .15s, background .15s;
-}
-.drop.over { border-color: var(--accent); background: var(--accent-soft); }
-.drop strong { display: block; font-size: 16px; margin-bottom: 4px; }
+header.top { position: sticky; top: 0; z-index: 20; background: var(--surface); border-bottom: 1px solid var(--border); }
+.top-inner { max-width: 1200px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; margin-right: auto; }
+.brand img { width: 28px; height: 28px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 0; font-family: inherit; }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); background: var(--ok-soft); }
+.pill.bad { color: var(--bad); background: var(--bad-soft); }
+.pill.warn { color: var(--warn); background: var(--warn-soft); cursor: pointer; }
 
-.notice { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); margin: 8px 0; }
+main { max-width: 1200px; margin: 0 auto; padding: 16px 16px 110px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-bottom: 14px; }
+h2 { font-size: 16px; margin: 0; }
+h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 8px 14px; border-radius: 9px; cursor: pointer; white-space: nowrap; text-decoration: none; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--muted); padding: 6px 8px; }
+.btn.quiet:hover { color: var(--text); background: var(--surface-2); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+input, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+input:focus, select:focus, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* Upload */
+.upload { max-width: 640px; margin: 24px auto; text-align: center; }
+.upload h1 { font-size: 22px; margin: 0 0 4px; }
+.upload p { margin: 0 0 18px; color: var(--muted); }
+.drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 170px; padding: 24px 16px; border: 2px dashed var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; text-align: center; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop .icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 20px; font-weight: 700; }
+.drop strong { font-size: 16px; }
+.upload .links { margin-top: 14px; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+
+.filebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.filebar .name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+details.cols > summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; margin-top: 10px; }
+.mapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; }
+.notice { padding: 9px 12px; border-radius: 9px; margin-top: 10px; font-size: 13px; }
 .notice.warn { background: var(--warn-soft); color: var(--warn); }
 .notice.bad { background: var(--bad-soft); color: var(--bad); }
-.notice.ok { background: var(--ok-soft); color: var(--ok); }
+.notice.info { background: var(--accent-soft); color: var(--text); }
 
-/* Tables */
-.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-table { border-collapse: collapse; width: 100%; }
-th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: left; }
-th { background: var(--surface-2); font-size: 12px; color: var(--muted); font-weight: 650; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
-tbody tr:hover td { background: var(--surface-2); }
-tr.selected td { background: var(--accent-soft) !important; }
-tfoot td { font-weight: 700; background: var(--surface-2); }
-td input.dist { width: 72px; text-align: right; }
-td input.money { width: 72px; text-align: right; }
-td input.driver { width: 150px; }
-td input.remark { width: 170px; }
-.sub { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; }
-.badge { display: inline-block; font-size: 10.5px; font-weight: 650; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--muted); margin-left: 4px; vertical-align: middle; }
-.badge.csv { background: var(--ok-soft); color: var(--ok); }
-.badge.road { background: var(--accent-soft); color: var(--accent); }
-.badge.straight { background: var(--warn-soft); color: var(--warn); }
-.badge.manual { background: var(--surface-2); color: var(--text); }
-.badge.missing { background: var(--bad-soft); color: var(--bad); }
-.badge.floor { background: var(--warn-soft); color: var(--warn); }
+.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.stat .k { font-size: 12px; color: var(--muted); font-weight: 600; }
+.stat .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } .stat:last-child { grid-column: span 2; } }
 
-.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.seg button { border: 0; background: var(--surface); padding: 6px 10px; font: inherit; color: var(--muted); cursor: pointer; }
-.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
+.chip { flex: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-weight: 600; cursor: pointer; }
+.chip .c { color: var(--muted); font-weight: 500; margin-left: 4px; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chip[aria-pressed="true"] .c { color: inherit; opacity: .8; }
+.chip.warn { border-color: var(--warn); color: var(--warn); }
 
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
-.stat .k { font-size: 12px; color: var(--muted); font-weight: 550; }
-.stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Driver card */
+.driver { padding: 0; overflow: hidden; }
+.driver > .head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; flex: none; }
+.driver .who { min-width: 0; }
+.driver .who .n { font-weight: 700; font-size: 16px; }
+.driver .who .m { font-size: 12px; color: var(--muted); }
+.driver .pay { text-align: right; }
+.driver .pay .k { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.driver .pay .v { font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.driver section { padding: 14px 16px; }
+.driver section + section { border-top: 1px solid var(--border); }
+.sec-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.sec-title .tag { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: 12px; color: #fff; }
+.tag.p { background: #b36b00; } .tag.d { background: #1d7a46; } .tag.f { background: var(--accent); }
 
-.route { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: 12px; overflow: hidden; }
-.route > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-.route > summary::-webkit-details-marker { display: none; }
-.route > summary .who { font-weight: 650; min-width: 160px; }
-.route > summary .chev { transition: transform .15s; color: var(--muted); }
-.route[open] > summary .chev { transform: rotate(90deg); }
-.route .body { border-top: 1px solid var(--border); }
-.route .adj { padding: 10px 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--surface-2); }
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { padding: 8px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.tbl th { font-size: 11.5px; color: var(--muted); font-weight: 650; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl tfoot td { font-weight: 700; border-top: 1px solid var(--border); }
+.tbl .id { font-weight: 650; white-space: nowrap; }
+.tbl .sub { display: block; font-size: 12px; color: var(--muted); }
+.tbl .instr { font-size: 13px; }
+.tbl a.tel { white-space: nowrap; text-decoration: none; }
+.tbl input.money { width: 80px; text-align: right; }
+.tbl input.remark { width: 100%; min-width: 140px; }
+.tbl input.dist { width: 70px; text-align: right; }
+.tbl input.drv { width: 160px; }
+.wrap { overflow-x: auto; }
+.badge { display: inline-block; font-size: 10.5px; font-weight: 650; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.bad { background: var(--bad-soft); color: var(--bad); }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+details.payd > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+details.payd > summary::-webkit-details-marker { display: none; }
+details.payd > summary .chev { color: var(--muted); transition: transform .15s; }
+details.payd[open] > summary .chev { transform: rotate(90deg); }
+.adj { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 
-/* Sticky action bar */
-.actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -2px 8px rgba(0,0,0,.06); }
-.actionbar .inner { max-width: 1400px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.actionbar .fig { display: flex; flex-direction: column; }
-.actionbar .fig .k { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
-.actionbar .fig .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Mobile: stack table rows as cards */
+@media (max-width: 720px) {
+  .tbl.stack thead { display: none; }
+  .tbl.stack tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .tbl.stack tr:last-child { border-bottom: 0; }
+  .tbl.stack td { display: block; position: relative; border: 0; padding: 3px 0 3px 104px; min-height: 24px; }
+  .tbl.stack td::before { content: attr(data-l); position: absolute; left: 0; top: 5px; width: 96px; font-size: 11px; color: var(--muted); font-weight: 650; text-transform: uppercase; letter-spacing: .02em; }
+  .tbl.stack td:empty { display: none; }
+  .tbl.stack td.num { text-align: left; }
+  .tbl.stack tfoot tr { display: flex; justify-content: space-between; }
+  .tbl.stack tfoot td { padding-left: 0; }
+  .tbl.stack tfoot td::before { content: none; }
+  .driver > .head { padding: 12px; }
+  .driver section { padding: 12px; }
+  .top-inner { gap: 6px; padding: 8px 12px; }
+  .brand { font-size: 15px; }
+  #netPill .lbl { display: none; }
+  #netPill { padding: 5px; }
+  .btn.quiet { padding: 6px 6px; }
+  .actionbar .inner { padding: 8px 12px; gap: 8px; flex-wrap: nowrap; }
+  .actionbar .opt, #abMeta { display: none; }
+  .actionbar .btn.primary { flex: 1; }
+  .filebar .name { flex: 1 1 100%; }
+  main { padding: 12px 12px 90px; }
+}
 
-/* Modal */
-dialog { border: 1px solid var(--border); border-radius: 12px; padding: 0; background: var(--surface); color: var(--text); width: min(560px, calc(100vw - 32px)); box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+.actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -2px 10px rgba(0,0,0,.05); }
+.actionbar .inner { max-width: 1200px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.actionbar .total .k { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.actionbar .total .v { font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; }
+
+dialog { border: 1px solid var(--border); border-radius: 14px; padding: 0; background: var(--surface); color: var(--text); width: min(560px, calc(100vw - 32px)); box-shadow: 0 20px 50px rgba(0,0,0,.25); }
 dialog::backdrop { background: rgba(10,15,25,.45); }
-dialog .head { padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 650; }
+dialog .head { padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 700; }
 dialog .content { padding: 16px; display: grid; gap: 12px; max-height: 70vh; overflow: auto; }
 dialog .foot { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+dialog h4 { margin: 6px 0 0; font-size: 13px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 
-.toasts { position: fixed; right: 16px; bottom: 84px; z-index: 50; display: grid; gap: 8px; width: min(420px, calc(100vw - 32px)); }
+.toasts { position: fixed; right: 16px; bottom: 80px; z-index: 50; display: grid; gap: 8px; width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
 .toast a { color: inherit; font-weight: 700; }
 .toast.ok { background: var(--ok); color: #fff; }
 .toast.bad { background: var(--bad); color: #fff; }
 
-.formula { font-size: 15px; font-weight: 600; padding: 10px 12px; background: var(--accent-soft); border-radius: 8px; }
-.bands { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 12px; font-size: 12px; margin-top: 10px; }
-.bands div { display: flex; justify-content: space-between; border-bottom: 1px dotted var(--border); padding: 2px 0; }
-ol.how { margin: 0; padding-left: 18px; color: var(--muted); }
-ol.how li { margin: 2px 0; }
-code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
-
-@media (max-width: 640px) {
-  .actionbar .inner { gap: 10px; }
-  .actionbar .fig.optional { display: none; }
-  .stat .v { font-size: 18px; }
+@media print {
+  header.top, .actionbar, .toasts, #filebar, .stats, .chips, .noprint, details.payd { display: none !important; }
+  body { background: #fff; color: #000; }
+  main { padding: 0; max-width: none; }
+  .card { box-shadow: none; border: 1px solid #bbb; break-inside: auto; }
+  .driver { page-break-after: always; }
+  body.print-one .driver:not(.print-target) { display: none !important; }
+  .driver > .head { background: #eee; }
+  a { color: #000; text-decoration: none; }
 }
 </style>
 </head>
 <body>
 <header class="top">
   <div class="top-inner">
-    <div class="brand"><img src="icon.svg" alt="">Dodo Driver Pay</div>
-    <span id="netPill" class="pill"><span class="dot"></span><span>…</span></span>
-    <span id="queuePill" class="pill warn hidden"><span class="dot"></span><span></span></span>
-    <button class="btn" id="btnSettings" type="button">Settings</button>
+    <div class="brand"><img src="icon.svg" alt="">Dodo Routes</div>
+    <span id="netPill" class="pill"><span class="dot"></span><span class="lbl">…</span></span>
+    <button id="queuePill" class="pill warn hidden" type="button"><span class="dot"></span><span></span></button>
+    <button class="btn quiet" id="btnUploads" type="button">Uploads</button>
+    <button class="btn quiet" id="btnSettings" type="button">Settings</button>
   </div>
-  <nav class="steps" role="tablist" aria-label="Steps">
-    <button role="tab" data-tab="upload" aria-selected="true"><span class="n">1</span>Upload</button>
-    <button role="tab" data-tab="deliveries" aria-selected="false"><span class="n">2</span>Assign &amp; price</button>
-    <button role="tab" data-tab="routes" aria-selected="false"><span class="n">3</span>Routes &amp; pay</button>
-    <button role="tab" data-tab="sheets" aria-selected="false"><span class="n">4</span>Google Sheets</button>
-  </nav>
 </header>
 
 <main>
-  <!-- STEP 1 -->
-  <section class="panel active" id="panel-upload">
-    <div class="grid cols-2">
-      <div class="card">
-        <h2>Upload delivery export</h2>
-        <p class="lede">CSV from the Evermile dashboard or a weekly Dodo sheet. Nothing leaves your device until you upload to Google Sheets.</p>
-        <label class="drop" id="dropZone" tabindex="0">
-          <strong>Drop CSV here or click to choose</strong>
-          <span class="muted">.csv / .tsv</span>
-          <input type="file" id="fileInput" accept=".csv,.tsv,.txt,text/csv" class="hidden">
+  <!-- Empty state -->
+  <section id="emptyView" class="upload">
+    <h1>Upload today's assigned orders</h1>
+    <p>Drop the CSV and get each driver's pickups, deliveries and pay. You can then upload everything to Google Sheets in one click.</p>
+    <label class="drop" id="dropZone" tabindex="0">
+      <span class="icon">↑</span>
+      <strong>Drop CSV here or click to choose</strong>
+      <span class="muted small">.csv file · nothing leaves your device until you upload to Sheets</span>
+      <input type="file" id="fileInput" accept=".csv,.tsv,.txt,text/csv" class="hidden">
+    </label>
+    <div class="links">
+      <button class="btn quiet" id="btnTemplate" type="button">Download CSV template</button>
+      <button class="btn quiet" id="btnSample" type="button">Try with sample data</button>
+    </div>
+  </section>
+
+  <!-- Loaded state -->
+  <section id="loadedView" class="hidden">
+    <div class="card" id="filebar">
+      <div class="filebar">
+        <span class="name" id="fileName"></span>
+        <span class="muted" id="fileMeta"></span>
+        <span class="spacer"></span>
+        <label class="row small muted" id="dateWrap">Date
+          <select id="fDate"></select>
+          <input type="date" id="fDateOverride" class="hidden">
         </label>
-        <div id="fileInfo" class="notice hidden"></div>
-        <div class="row" style="margin-top:10px">
-          <button class="btn" id="btnSample" type="button">Load validation sample</button>
-          <button class="btn danger ghost" id="btnReset" type="button">Start over</button>
-        </div>
+        <button class="btn" id="btnReplace" type="button">Replace file</button>
+        <button class="btn quiet" id="btnClear" type="button">Clear</button>
       </div>
-      <div class="card">
-        <h2>Pricing formula (Dodo)</h2>
-        <p class="lede">Applied to every delivery. Edit in Settings if the card changes.</p>
-        <div class="formula" id="formulaText"></div>
-        <ol class="how small" style="margin-top:10px">
-          <li>Round distance <b>up</b> to the next <span data-cfg="bandMiles"></span> mi band.</li>
-          <li>Fee = <span data-cfg="base"></span> base + <span data-cfg="perMile"></span> × banded miles.</li>
-          <li>If below <span data-cfg="floor"></span>, pay <span data-cfg="floor"></span>.</li>
-          <li>Route total = sum of drop fees + extra charges (+ route adjustments).</li>
-        </ol>
-        <details style="margin-top:8px"><summary class="small muted">Band table 0–30 mi</summary><div class="bands" id="bandTable"></div></details>
-      </div>
+      <div id="notices"></div>
+      <details class="cols" id="colsDetails">
+        <summary>Column matching</summary>
+        <div class="mapgrid" id="mappingGrid"></div>
+      </details>
     </div>
 
-    <div class="card hidden" id="mappingCard">
-      <h2>Columns &amp; filters</h2>
-      <p class="lede">Detected automatically — adjust if anything is wrong.</p>
-      <div class="grid map" id="mappingGrid"></div>
-      <hr style="border:0;border-top:1px solid var(--border);margin:16px 0">
-      <div class="grid map">
-        <label class="field">Carrier<select id="fCarrier"></select></label>
-        <label class="field">Delivery date<select id="fDate"></select></label>
-        <label class="field" id="fDateOverrideWrap">Date (if no date column)<input type="date" id="fDateOverride"></label>
-      </div>
-      <div style="margin-top:12px">
-        <div class="small muted" style="font-weight:600;margin-bottom:4px">Include statuses</div>
-        <div class="row" id="fStatuses"></div>
-      </div>
-      <div id="mappingNotice"></div>
-      <div class="row" style="margin-top:12px">
-        <span class="muted" id="includeCount"></span>
-        <span class="spacer"></span>
-        <button class="btn primary" id="btnApply" type="button">Continue → assign drivers</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- STEP 2 -->
-  <section class="panel" id="panel-deliveries">
-    <div class="card">
-      <div class="toolbar">
-        <div class="seg" id="viewFilter">
-          <button data-f="all" aria-pressed="true">All</button>
-          <button data-f="unassigned" aria-pressed="false">Unassigned</button>
-          <button data-f="nodist" aria-pressed="false">Needs distance</button>
-        </div>
-        <input type="search" id="search" placeholder="Search order, merchant, postcode…" style="min-width:220px">
-        <span class="spacer"></span>
-        <button class="btn" id="btnDistances" type="button">Calculate distances</button>
-      </div>
-      <div class="toolbar">
-        <span class="muted" id="selCount">0 selected</span>
-        <input list="driverList" id="bulkDriver" placeholder="Driver name" style="width:180px">
-        <button class="btn primary" id="btnAssign" type="button">Assign to selected</button>
-        <button class="btn" id="btnUnassign" type="button">Clear driver</button>
-        <span class="spacer"></span>
-        <span class="small muted">Tip: shift-click to select a range</span>
-      </div>
-      <div id="distStatus"></div>
-      <div class="table-wrap" style="max-height:65vh">
-        <table id="delTable">
-          <thead><tr>
-            <th><input type="checkbox" id="selAll" aria-label="Select all"></th>
-            <th>Order</th><th>Merchant / customer</th><th>Pickup → drop-off</th>
-            <th class="num">Distance (mi)</th><th>Driver</th><th class="num">Fee</th>
-            <th class="num">Extra £</th><th>Remark</th><th class="num">Drop total</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <datalist id="driverList"></datalist>
-    </div>
-  </section>
-
-  <!-- STEP 3 -->
-  <section class="panel" id="panel-routes">
     <div class="stats" id="stats"></div>
-    <div class="card">
-      <div class="row" style="margin-bottom:10px">
-        <h2 style="margin:0">Driver payment summary</h2>
-        <span class="spacer"></span>
-        <button class="btn" id="btnCsvSummary" type="button">Download summary CSV</button>
-        <button class="btn" id="btnCsvDeliveries" type="button">Download deliveries CSV</button>
-      </div>
-      <div class="table-wrap"><table id="driverTable"></table></div>
-    </div>
-    <div class="card">
-      <h2>Routes (driver × day)</h2>
-      <p class="lede">Open a route to see each drop's calculation. Add route-level extras (waiting time, parking, bonus or deduction) with a remark.</p>
-      <div id="routeList"></div>
-    </div>
-  </section>
-
-  <!-- STEP 4 -->
-  <section class="panel" id="panel-sheets">
-    <div class="grid cols-2">
-      <div class="card">
-        <h2>Upload to Google Sheets</h2>
-        <p class="lede">Creates one tab per delivery date (e.g. <b>19-Oct-2026</b>) with the driver summary, route totals and every delivery with its calculation.</p>
-        <div id="sheetsStatus"></div>
-        <div class="row" style="margin-top:12px">
-          <button class="btn primary" id="btnUpload2" type="button">Upload to Google Sheets</button>
-          <button class="btn" id="btnSyncNow" type="button">Sync queue now</button>
-        </div>
-      </div>
-      <div class="card">
-        <h2>Queue</h2>
-        <p class="lede">Uploads made while offline wait here and sync automatically when the connection returns.</p>
-        <div id="queueList"></div>
-      </div>
-    </div>
-    <div class="card">
-      <h2>Upload history</h2>
-      <div id="historyList"></div>
-    </div>
+    <div class="chips" id="chips" role="toolbar" aria-label="Drivers"></div>
+    <div id="drivers"></div>
   </section>
 </main>
 
-<div class="actionbar">
+<div class="actionbar hidden" id="actionbar">
   <div class="inner">
-    <div class="fig"><span class="k">Deliveries</span><span class="v" id="abDeliveries">0</span></div>
-    <div class="fig optional"><span class="k">Unassigned</span><span class="v" id="abUnassigned">0</span></div>
-    <div class="fig optional"><span class="k">Need distance</span><span class="v" id="abUnpriced">0</span></div>
-    <div class="fig"><span class="k">Drivers</span><span class="v" id="abDrivers">0</span></div>
-    <div class="fig"><span class="k">Total payable</span><span class="v" id="abTotal">£0.00</span></div>
+    <div class="total"><div class="k">Total payable</div><div class="v" id="abTotal">£0.00</div></div>
+    <span class="muted small" id="abMeta"></span>
     <span class="spacer"></span>
+    <button class="btn opt" id="btnCsv" type="button">Download CSV</button>
+    <button class="btn opt" id="btnPrintAll" type="button">Print</button>
     <button class="btn primary" id="btnUpload" type="button">Upload to Google Sheets</button>
   </div>
 </div>
 
+<datalist id="driverList"></datalist>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <dialog id="dlgSettings">
   <form method="dialog">
     <div class="head">Settings</div>
     <div class="content">
-      <h3 style="margin:0">Google Sheets connection</h3>
+      <h4>Google Sheets</h4>
       <label class="field">Apps Script Web App URL<input id="sUrl" placeholder="https://script.google.com/macros/s/…/exec"></label>
       <label class="field">Upload token<input id="sToken" type="password" autocomplete="off"></label>
       <div class="row"><button class="btn" id="btnTest" type="button">Test connection</button><span id="testResult" class="small"></span></div>
-      <h3 style="margin:8px 0 0">Pricing</h3>
-      <label class="row small"><input type="checkbox" id="sUnlock"> Unlock pricing (changes affect every calculation)</label>
-      <div class="grid map" id="pricingFields">
+      <h4>Pricing</h4>
+      <p class="small muted" style="margin:0" id="formulaText"></p>
+      <label class="row small"><input type="checkbox" id="sUnlock"> Unlock to edit</label>
+      <div class="grid2" id="pricingFields">
         <label class="field">Base £<input type="number" step="0.01" id="sBase"></label>
         <label class="field">Per mile £<input type="number" step="0.01" id="sPerMile"></label>
         <label class="field">Minimum £<input type="number" step="0.01" id="sFloor"></label>
-        <label class="field">Distance band (mi)<input type="number" step="0.1" id="sBand"></label>
-        <label class="field">Extra per additional drop £<input type="number" step="0.01" id="sDrop"></label>
+        <label class="field">Band (mi)<input type="number" step="0.1" id="sBand"></label>
+        <label class="field">Per extra drop £<input type="number" step="0.01" id="sDrop"></label>
       </div>
-      <button class="btn ghost small" id="btnPricingDefault" type="button">Restore Dodo defaults</button>
-      <h3 style="margin:8px 0 0">Distance lookup (when the CSV has no distance column)</h3>
-      <label class="row small"><input type="checkbox" id="sRoad"> Use road distance (OpenStreetMap routing)</label>
-      <label class="field">Straight-line fallback multiplier<input type="number" step="0.05" id="sFactor"></label>
-      <p class="small muted" style="margin:0">Postcodes are geocoded with postcodes.io; results are cached on this device so they work offline next time.</p>
-      <h3 style="margin:8px 0 0">Appearance</h3>
-      <label class="field">Theme<select id="sTheme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <h4>Missing distances</h4>
+      <label class="row small"><input type="checkbox" id="sRoad"> Look up road distance from postcodes when the CSV has none</label>
+      <h4>Theme</h4>
+      <select id="sTheme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
     </div>
     <div class="foot">
       <button class="btn" value="cancel">Close</button>
@@ -383,11 +293,20 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-
   </form>
 </dialog>
 
+<dialog id="dlgUploads">
+  <div class="head">Google Sheets uploads</div>
+  <div class="content" id="uploadsContent"></div>
+  <div class="foot">
+    <button class="btn" id="btnSyncNow" type="button">Sync now</button>
+    <button class="btn primary" id="btnCloseUploads" type="button">Close</button>
+  </div>
+</dialog>
+
 <dialog id="dlgConflict">
   <div class="head">Tab already exists</div>
   <div class="content">
-    <p style="margin:0">A tab named <b id="cfName"></b> already exists in the spreadsheet. <a id="cfLink" target="_blank" rel="noopener">View it ↗</a></p>
-    <p class="muted" style="margin:0">Update replaces its contents. A new version keeps the existing tab untouched.</p>
+    <p style="margin:0">The spreadsheet already has a tab called <b id="cfName"></b>. <a id="cfLink" target="_blank" rel="noopener">View it ↗</a></p>
+    <p class="muted" style="margin:0">Update replaces its contents. A new version leaves the existing tab untouched.</p>
   </div>
   <div class="foot">
     <button class="btn" data-choice="cancel" type="button">Cancel</button>

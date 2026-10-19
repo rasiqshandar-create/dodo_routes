@@ -1,5 +1,5 @@
 /* Offline support: cache the app shell, serve it when there is no connection. */
-var CACHE = 'dodo-driver-pay-v1';
+var CACHE = 'dodo-routes-v2';
 var SHELL = ['./', 'index.html', 'app.js', 'pricing.js', 'sample-data.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', function (e) {

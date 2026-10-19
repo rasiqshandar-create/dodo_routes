@@ -122,13 +122,16 @@ function upload_(ss, tabName, req) {
 
 function writeReport_(sheet, tabName, req) {
   var meta = req.meta || {};
+  // New format: req.sections = [{ title, header, rows, totals, money, driverHeading }]
+  var sections = req.sections || [
+    Object.assign({ title: 'DRIVER PAYMENT SUMMARY' }, req.drivers || {}),
+    Object.assign({ title: 'ROUTE TOTALS (driver × day)' }, req.routes || {}),
+    Object.assign({ title: 'DELIVERIES' }, req.deliveries || {})
+  ];
+  var widest = sections.reduce(function (w, t) { return Math.max(w, (t.header || []).length); }, 4);
   var row = 1;
-  var widest = Math.max(
-    (req.deliveries && req.deliveries.header || []).length,
-    (req.routes && req.routes.header || []).length,
-    (req.drivers && req.drivers.header || []).length, 4);
 
-  sheet.getRange(row, 1).setValue('Dodo driver payments — ' + tabName)
+  sheet.getRange(row, 1).setValue('Dodo routes & driver pay — ' + tabName)
     .setFontSize(14).setFontWeight('bold');
   row++;
   var info = [
@@ -142,17 +145,22 @@ function writeReport_(sheet, tabName, req) {
   if (meta.totalPayable != null) sheet.getRange(row + 3, 2).setNumberFormat('£#,##0.00');
   row += info.length + 1;
 
-  row = writeTable_(sheet, row, 'DRIVER PAYMENT SUMMARY', req.drivers, widest);
-  row = writeTable_(sheet, row, 'ROUTE TOTALS (driver × day)', req.routes, widest);
-  row = writeTable_(sheet, row, 'DELIVERIES', req.deliveries, widest);
+  sections.forEach(function (t) {
+    if (t.driverHeading) {
+      sheet.getRange(row, 1, 1, widest).setBackground(HEADER_BG);
+      sheet.getRange(row, 1).setValue(t.driverHeading).setFontWeight('bold').setFontSize(12).setFontColor('#ffffff');
+      row += 1;
+    }
+    row = writeTable_(sheet, row, t.title, t, widest);
+  });
 
-  sheet.setFrozenRows(0);
   sheet.autoResizeColumns(1, widest);
 }
 
 function writeTable_(sheet, row, title, table, widest) {
   if (!table || !table.header) return row;
   var header = table.header;
+  if (!(table.rows || []).length && table.skipIfEmpty) return row;
   var rows = table.rows || [];
   sheet.getRange(row, 1, 1, widest).setBackground(SECTION_BG);
   sheet.getRange(row, 1).setValue(title).setFontWeight('bold');

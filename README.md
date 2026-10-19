@@ -1,4 +1,4 @@
-# Dodo Driver Pay
+# Dodo Routes
 
 A standalone web app that calculates Dodo driver payments from a delivery export, then uploads the results to Google Sheets in one click. It runs fully in the browser with no server and no dependencies, and works offline.
 
@@ -29,24 +29,39 @@ Base, per-mile, minimum and band size can be edited in **Settings → Pricing** 
 
 ## Using it
 
-1. **Upload.** Drop the CSV. Columns are detected automatically (Evermile export: `external_id`, `pickup_postcode`, `dropoff_postcode`, `carrier`, `delivery_status`…; weekly Dodo sheet: `Order ID`, `Agent_Name`, `Distance`…). The carrier filter defaults to **Dodo** and cancelled statuses are excluded. If the file contains several dates, pick one, or choose *All dates* to get one Sheets tab per date.
-2. **Assign & price.** Tick deliveries (shift-click selects a range), type a driver name and click **Assign to selected**, or type the name directly in a row. Each row shows its distance, its source, and the fee calculation. Add an **Extra £** charge and a **Remark** per delivery if needed. You can overwrite any distance by hand.
-3. **Routes & pay.** A route is one driver on one day. Open a route to see every drop's calculation. Add a route-level extra or deduction (negative number) with a reason. The driver summary shows the final payable amount. You can also download CSVs.
-4. **Upload to Google Sheets.** This creates a tab named after the delivery date, e.g. `19-Oct-2026`, with three sections: Driver payment summary, Route totals, and Deliveries (with a per-row calculation column).
-   - If the tab already exists, you're asked to **Update existing tab** or **Create "19-Oct-2026 (v2)"**.
-   - On success you get a toast with a direct **Open tab ↗** link, and the upload is added to *Upload history*.
-   - If you're offline, the upload is **queued** and syncs automatically when the connection comes back.
+1. **Upload** the day's assigned-orders CSV. Columns are matched automatically. Check **Column matching** if anything looks off.
+2. Each **driver** gets their own card. Use the chips at the top to view one driver at a time.
+   - **1 · Pickup details**: Order IDs, merchant (address and phone), total parcels to collect, pickup slot. Grouped by merchant and slot.
+   - **2 · Delivery details**: stop #, Order ID, customer, address, tap-to-call phone, delivery slot, parcels, instructions. In stop-sequence order (or by slot).
+   - **£ Pay calculation** (collapsed): per-order miles → band → fee, an optional **Extra £** and **Remark** per order, and a route-level extra or deduction with a reason.
+3. Orders without a driver appear under **Unassigned**. Type a name to assign them.
+4. **Print** gives one page per driver (or just the selected driver). **Download CSV** exports everything.
+5. **Upload to Google Sheets** creates a tab for the date (e.g. `19-Oct-2026`) containing the driver payment summary, then each driver's Pickup and Delivery tables, then the per-order pay calculation. If the tab exists you choose **Update** or **New version**. When offline, uploads queue and sync automatically.
 
-### Distances
+## CSV format
 
-| Source | Badge | When |
+Download the template from the app (**Download CSV template**) or use [`templates/dodo-routes-template.csv`](templates/dodo-routes-template.csv). One row per order:
+
+| Column | Required | Notes |
 |---|---|---|
-| CSV column | `CSV` | The export has a distance column (miles, or km, which is converted). **Most accurate.** |
-| Road route | `road` | No distance column: postcodes are geocoded via postcodes.io and routed with OpenStreetMap (OSRM), pickup → drop-off. |
-| Straight line | `est.` | Fallback if routing is unavailable. Multiplier is set in Settings. **Check these before paying.** |
-| Manual | `manual` | You typed it. |
-
-Road distances from OpenStreetMap can differ slightly from the distances Evermile shows. For exact parity, include the distance column in the export. Postcode and distance lookups are cached on the device, so repeat postcodes work offline.
+| Delivery Date | **Yes** | `19/10/2026` or `2026-10-19`. Names the Sheets tab and the pay day. |
+| Order ID | **Yes** | Unique per order. |
+| Merchant Name | Yes | Pickup grouping. |
+| Merchant Phone | Optional | Shown on the pickup list so the driver can call the store. |
+| Pickup Address | Yes | Include the postcode. |
+| Pickup Slot | Yes | e.g. `08:00-09:00`. |
+| Customer Name | Yes | |
+| Customer Phone | Yes | Keep as text so the leading 0 isn't lost (or use `+44…`). |
+| Customer Address | Yes | Include the postcode. |
+| Delivery Slot | Yes | e.g. `10:00-12:00`. |
+| Delivery Instructions | Optional | |
+| Parcel Count | Yes | Defaults to 1 if blank. |
+| Driver Name | Yes | Spell names the same way every day so pay totals group correctly. |
+| Vehicle Type | Optional | Shown on the card. Pricing is currently the same for all vehicles. |
+| Distance (Miles) | **Yes for pay** | Pickup → drop-off miles per order. This drives the fee. If blank, it's estimated from the postcodes (flagged for checking). |
+| Stop Sequence | Optional | 1, 2, 3… delivery order on the route. Otherwise sorted by slot. |
+| Extra Charge (£) | Optional | Pre-fills the per-order extra (waiting time, parking…). |
+| Remarks | Optional | Reason for the extra charge. |
 
 ## One-time setup (about 5 minutes, two parts)
 
@@ -84,7 +99,8 @@ Once opened over https, the app is cached for offline use. In Chrome/Edge you ca
 index.html            UI
 app.js                app logic (CSV, mapping, distances, assignment, queue, Sheets upload)
 pricing.js            pricing engine (shared with tests)
-sample-data.js        validation sample: 133 real Dodo distances from 16-Oct-2026, anonymised
+sample-data.js        fictional sample orders + CSV template
+templates/            CSV template
 sw.js                 offline cache
 manifest.webmanifest  installable app metadata
 apps-script/Code.gs   Google Sheets connector

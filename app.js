@@ -1,53 +1,38 @@
-/* Dodo Driver Pay — app logic. Vanilla JS, no dependencies, works offline. */
+/* Dodo Routes — driver-wise pickups, deliveries and pay. Vanilla JS, no dependencies, works offline. */
 (function () {
   'use strict';
 
   var P = window.DodoPricing;
   var LS = {
-    settings: 'dodoPay.settings',
-    session: 'dodoPay.session',
-    roster: 'dodoPay.roster',
-    geo: 'dodoPay.geoCache',
-    dist: 'dodoPay.distCache',
-    queue: 'dodoPay.queue',
-    history: 'dodoPay.history'
+    settings: 'dodoPay.settings', session: 'dodoRoutes.session', geo: 'dodoPay.geoCache',
+    dist: 'dodoPay.distCache', queue: 'dodoPay.queue', history: 'dodoPay.history'
   };
 
-  // ---------- storage helpers ----------
+  // ---------- storage ----------
   function load(key, fallback) {
-    try {
-      var v = localStorage.getItem(key);
-      return v ? JSON.parse(v) : fallback;
-    } catch (e) { return fallback; }
+    try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
   }
   function save(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage full or blocked */ }
   }
 
-  var settings = Object.assign({
-    scriptUrl: '', token: '', pricing: Object.assign({}, P.DEFAULT_CONFIG),
-    roadDistance: true, straightFactor: 1.0, theme: ''
-  }, load(LS.settings, {}));
+  var settings = Object.assign({ scriptUrl: '', token: '', pricing: {}, roadDistance: true, theme: '' }, load(LS.settings, {}));
   settings.pricing = Object.assign({}, P.DEFAULT_CONFIG, settings.pricing || {});
-
-  var roster = load(LS.roster, []);
   var geoCache = load(LS.geo, {});
   var distCache = load(LS.dist, {});
   var queue = load(LS.queue, []);
-  var history = load(LS.history, []);
+  var uploadHistory = load(LS.history, []);
 
-  // Session: parsed file + edits.
-  var S = Object.assign({
-    fileName: '', headers: [], rows: [], mapping: {}, carrier: '', date: '', dateOverride: '',
-    statuses: null, deliveries: [], routeAdj: {}, applied: false
-  }, load(LS.session, {}));
+  function emptySession() {
+    return { fileName: '', headers: [], rows: [], mapping: {}, date: '', dateOverride: '', edits: {}, routeAdj: {} };
+  }
+  var S = Object.assign(emptySession(), load(LS.session, {}));
+  var view = { driver: '' }; // '' = all drivers
+  var result = null;
 
-  var view = { tab: 'upload', filter: 'all', search: '', selected: {}, lastClicked: null };
-  var result = null; // output of P.calculate
-
-  // ---------- small utils ----------
-  var $ = function (sel, root) { return (root || document).querySelector(sel); };
-  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  // ---------- utils ----------
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -55,138 +40,144 @@
   }
   var gbp = P.fmt;
   function norm(h) { return String(h || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
-  function normPostcode(pc) { return String(pc || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
-  function prettyPostcode(pc) {
-    var p = normPostcode(pc);
-    return p.length > 3 ? p.slice(0, -3) + ' ' + p.slice(-3) : p;
+  function clean(v) { return String(v == null ? '' : v).trim().replace(/^"+|"+$/g, '').replace(/^'(?=[+0-9])/, '').trim(); }
+  function normPc(pc) { return String(pc || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  var PC_RE = /\b([A-Z]{1,2}[0-9][A-Z0-9]?)\s*([0-9][A-Z]{2})\b/i;
+  function postcodeOf(text) {
+    var m = PC_RE.exec(String(text || ''));
+    return m ? (m[1] + ' ' + m[2]).toUpperCase() : '';
   }
-  function stripQuotes(v) { return String(v == null ? '' : v).trim().replace(/^"+|"+$/g, '').replace(/^'/, '').trim(); }
-  var debounceTimers = {};
-  function debounce(key, fn, ms) {
-    clearTimeout(debounceTimers[key]);
-    debounceTimers[key] = setTimeout(fn, ms || 300);
-  }
-  function persistSession() { debounce('session', function () { save(LS.session, S); }, 250); }
-
+  var timers = {};
+  function debounce(k, fn, ms) { clearTimeout(timers[k]); timers[k] = setTimeout(fn, ms || 250); }
+  function persist() { debounce('s', function () { save(LS.session, S); }); }
   function toast(html, kind, ms) {
     var el = document.createElement('div');
     el.className = 'toast ' + (kind || '');
     el.innerHTML = html;
     $('#toasts').appendChild(el);
-    setTimeout(function () { el.remove(); }, ms || 6000);
+    setTimeout(function () { el.remove(); }, ms || 5000);
+  }
+  function initials(name) {
+    return String(name).split(/\s+/).filter(Boolean).slice(0, 2).map(function (w) { return w[0]; }).join('').toUpperCase() || '?';
   }
 
-  // ---------- dates ----------
+  // ---------- dates & slots ----------
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  function ymdLondon(d) {
+  function pad(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
+  function londonParts(d) {
+    var o = {};
     try {
-      var parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
-      var o = {};
-      parts.forEach(function (p) { o[p.type] = p.value; });
-      return o.year + '-' + o.month + '-' + o.day;
+      new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        .formatToParts(d).forEach(function (p) { o[p.type] = p.value; });
     } catch (e) {
-      return d.toISOString().slice(0, 10);
+      o = { year: d.getFullYear(), month: pad(d.getMonth() + 1), day: pad(d.getDate()), hour: pad(d.getHours()), minute: pad(d.getMinutes()) };
     }
+    return o;
   }
   function parseDate(v) {
-    var s = stripQuotes(v);
+    var s = clean(v), m;
     if (!s) return '';
-    var m;
-    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { // ISO timestamp → London calendar date
-      var d = new Date(s);
-      return isNaN(d) ? '' : ymdLondon(d);
-    }
-    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
-    if ((m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/))) { // UK day-first
-      var y = m[3].length === 2 ? '20' + m[3] : m[3];
-      return y + '-' + pad(m[2]) + '-' + pad(m[1]);
-    }
-    if ((m = s.match(/^(\d{1,2})[\s-]([A-Za-z]{3})[a-z]*[\s-](\d{4})/))) {
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { var d = new Date(s); if (isNaN(d)) return ''; var o = londonParts(d); return o.year + '-' + o.month + '-' + o.day; }
+    if ((m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+    if ((m = s.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})/))) return (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + pad(m[2]) + '-' + pad(m[1]);
+    if ((m = s.match(/(\d{1,2})[\s-]([A-Za-z]{3})[a-z]*[\s-,]+(\d{4})/))) {
       var mi = MONTHS.indexOf(m[2].charAt(0).toUpperCase() + m[2].slice(1, 3).toLowerCase());
       if (mi >= 0) return m[3] + '-' + pad(mi + 1) + '-' + pad(m[1]);
     }
-    var t = new Date(s);
-    return isNaN(t) ? '' : ymdLondon(t);
+    return '';
   }
-  function pad(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
-  function tabLabel(ymd) { // 2026-10-19 → 19-Oct-2026
+  function tabLabel(ymd) {
     var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
     return m ? m[3] + '-' + MONTHS[Number(m[2]) - 1] + '-' + m[1] : 'Undated';
+  }
+  function todayYmd() { var o = londonParts(new Date()); return o.year + '-' + o.month + '-' + o.day; }
+  // Show slots compactly: ISO timestamps become "10:00"; free text ("10:00-12:00") is kept as typed.
+  function fmtSlot(v) {
+    var s = clean(v);
+    if (!s) return '';
+    var parts = s.split(/\s*(?:–|—|\bto\b|\s-\s)\s*/);
+    var iso = /^\d{4}-\d{2}-\d{2}T/;
+    if (parts.every(function (p) { return iso.test(p); })) {
+      return parts.map(function (p) { var o = londonParts(new Date(p)); return o.hour + ':' + o.minute; }).join('–');
+    }
+    if (iso.test(s)) { var o = londonParts(new Date(s)); return o.hour + ':' + o.minute; }
+    return s;
+  }
+  function slotSortKey(v) {
+    var s = clean(v), m;
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { var o = londonParts(new Date(s)); return o.hour + o.minute; }
+    m = s.match(/(\d{1,2})[:.](\d{2})/);
+    return m ? pad(m[1]) + m[2] : '9999';
   }
 
   // ---------- CSV ----------
   function parseCSV(text) {
     text = text.replace(/^﻿/, '');
     var first = text.split(/\r?\n/, 1)[0] || '';
-    var delim = [',', ';', '\t'].map(function (d) { return [d, first.split(d).length]; })
-      .sort(function (a, b) { return b[1] - a[1]; })[0][0];
-    var rows = [], row = [], field = '', q = false, i = 0, c;
-    for (; i < text.length; i++) {
+    var delim = [',', ';', '\t'].map(function (d) { return [d, first.split(d).length]; }).sort(function (a, b) { return b[1] - a[1]; })[0][0];
+    var rows = [], row = [], f = '', q = false, c;
+    for (var i = 0; i < text.length; i++) {
       c = text[i];
-      if (q) {
-        if (c === '"') {
-          if (text[i + 1] === '"') { field += '"'; i++; } else q = false;
-        } else field += c;
-      } else if (c === '"') q = true;
-      else if (c === delim) { row.push(field); field = ''; }
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+      else if (c === '"') q = true;
+      else if (c === delim) { row.push(f); f = ''; }
       else if (c === '\n' || c === '\r') {
         if (c === '\r' && text[i + 1] === '\n') i++;
-        row.push(field); field = '';
+        row.push(f); f = '';
         if (row.length > 1 || row[0] !== '') rows.push(row);
         row = [];
-      } else field += c;
+      } else f += c;
     }
-    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+    if (f !== '' || row.length) { row.push(f); rows.push(row); }
     return rows;
   }
   function toCSV(rows) {
     return rows.map(function (r) {
-      return r.map(function (v) {
-        v = v == null ? '' : String(v);
-        return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-      }).join(',');
+      return r.map(function (v) { v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',');
     }).join('\r\n');
   }
   function download(name, text) {
-    var blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' }));
     a.download = name;
     document.body.appendChild(a);
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
-  // ---------- column mapping ----------
+  // ---------- columns ----------
   var FIELDS = [
-    { key: 'orderId', label: 'Order ID', req: true, cands: ['external id', 'order id', 'order no', 'order number', 'order', 'order id 1', 'order_id'] },
-    { key: 'merchant', label: 'Merchant', cands: ['merchant name', 'merchant', 'store', 'shop'] },
-    { key: 'customer', label: 'Customer', cands: ['customer name', 'customer', 'recipient'] },
-    { key: 'date', label: 'Delivery date', cands: ['commited delivery window start', 'committed delivery window start', 'delivery date', 'date', 'day', 'actual', 'delivery before', 'dropoff time', 'collection time', 'creation time'] },
-    { key: 'distance', label: 'Distance', cands: ['distance mi', 'distance miles', 'distance', 'miles', 'distance km', 'mileage'] },
-    { key: 'pickup', label: 'Pickup postcode', cands: ['pickup postcode', 'pick up postcode', 'collection postcode', 'pickup post code', 'from postcode'] },
-    { key: 'dropoff', label: 'Drop-off postcode', cands: ['dropoff postcode', 'drop off postcode', 'delivery postcode', 'customer postcode', 'postcode', 'to postcode'] },
-    { key: 'driver', label: 'Driver (if present)', cands: ['agent name', 'driver', 'driver name', 'courier', 'courier name', 'rider', 'agent'] },
-    { key: 'carrier', label: 'Carrier', cands: ['carrier', 'delivery partner', 'partner'] },
-    { key: 'status', label: 'Status', cands: ['delivery status', 'status', 'order status'] },
-    { key: 'route', label: 'Route', cands: ['route external id', 'route', 'route id', 'route name'] }
+    { key: 'orderId', label: 'Order ID', req: true, c: ['order id', 'external id', 'order number', 'order no', 'order', 'order id 1'] },
+    { key: 'date', label: 'Delivery date', c: ['delivery date', 'date', 'day'] },
+    { key: 'merchant', label: 'Merchant name', c: ['merchant name', 'merchant', 'store', 'shop'] },
+    { key: 'merchantPhone', label: 'Merchant phone', c: ['merchant phone', 'store phone', 'pickup phone'] },
+    { key: 'pickupAddress', label: 'Pickup address', c: ['pickup address', 'collection address', 'pickup postcode', 'collection postcode'] },
+    { key: 'pickupSlot', label: 'Pickup slot', c: ['pickup slot', 'collection slot', 'pickup window', 'pickup time', 'commited pickup window start'] },
+    { key: 'customer', label: 'Customer name', c: ['customer name', 'customer', 'recipient', 'recipient name'] },
+    { key: 'phone', label: 'Customer phone', c: ['customer phone', 'customer phone number', 'phone', 'mobile', 'recipient phone'] },
+    { key: 'address', label: 'Customer address', c: ['customer address', 'delivery address', 'dropoff address', 'address', 'dropoff postcode', 'delivery postcode'] },
+    { key: 'deliverySlot', label: 'Delivery slot', c: ['delivery slot', 'delivery window', 'delivery time', 'commited delivery window start', 'delivery before'] },
+    { key: 'instructions', label: 'Delivery instructions', c: ['delivery instructions', 'instructions', 'delivery notes', 'notes', 'order note'] },
+    { key: 'parcels', label: 'Parcel count', c: ['parcel count', 'parcels', 'num parcels', 'no of parcels', 'number of parcels', 'packages', 'items'] },
+    { key: 'driver', label: 'Driver name', c: ['driver name', 'driver', 'agent name', 'courier', 'rider'] },
+    { key: 'vehicle', label: 'Vehicle type', c: ['vehicle type', 'vehicle'] },
+    { key: 'distance', label: 'Distance (miles)', c: ['distance miles', 'distance mi', 'distance', 'miles', 'distance km'] },
+    { key: 'stop', label: 'Stop sequence', c: ['stop sequence', 'stop', 'sequence', 'route order index', 'drop order'] },
+    { key: 'extra', label: 'Extra charge £', c: ['extra charge', 'extra charge £', 'extra', 'additional charge'] },
+    { key: 'remark', label: 'Remarks', c: ['remarks', 'remark', 'pay remark'] },
+    { key: 'carrier', label: 'Carrier (filter)', c: ['carrier'] },
+    { key: 'status', label: 'Status (filter)', c: ['delivery status', 'status'] }
   ];
 
   function autoMap(headers) {
-    var n = headers.map(norm);
-    var used = {};
-    var map = {};
+    var n = headers.map(norm), used = {}, map = {};
     FIELDS.forEach(function (f) {
       var hit = -1;
-      f.cands.some(function (c) {
-        var i = n.findIndex(function (h, idx) { return !used[idx] && h === c; });
-        if (i >= 0) { hit = i; return true; }
-        return false;
-      });
+      f.c.some(function (c) { var i = n.findIndex(function (h, x) { return !used[x] && h === c; }); if (i >= 0) { hit = i; return true; } return false; });
       if (hit < 0) {
-        f.cands.some(function (c) {
-          if (c.length < 5) return false;
-          var i = n.findIndex(function (h, idx) { return !used[idx] && h.indexOf(c) >= 0; });
+        f.c.some(function (c) {
+          if (c.length < 6) return false;
+          var i = n.findIndex(function (h, x) { return !used[x] && h.indexOf(c) >= 0; });
           if (i >= 0) { hit = i; return true; }
           return false;
         });
@@ -195,613 +186,472 @@
     });
     return map;
   }
-
   function col(row, key) {
     var h = S.mapping[key];
     if (!h) return '';
     var i = S.headers.indexOf(h);
-    return i >= 0 ? (row[i] == null ? '' : row[i]) : '';
+    return i >= 0 ? clean(row[i]) : '';
+  }
+  function rowDate(r) {
+    return (S.mapping.date && parseDate(col(r, 'date'))) ||
+      (S.mapping.deliverySlot && parseDate(col(r, 'deliverySlot'))) ||
+      S.dateOverride || '';
+  }
+  var excluded = { carrier: 0, cancelled: 0 };
+  function includeRow(r) {
+    if (S.mapping.carrier && S.hasDodo && !/dodo/i.test(col(r, 'carrier'))) { excluded.carrier++; return false; }
+    if (S.mapping.status && /cancel/i.test(col(r, 'status'))) { excluded.cancelled++; return false; }
+    return true;
   }
 
-  function isKm() { return /\bkm\b|kilomet/i.test(S.mapping.distance || ''); }
-
-  function rowDate(row) {
-    var d = S.mapping.date ? parseDate(col(row, 'date')) : '';
-    return d || S.dateOverride || '';
-  }
-
-  function isCancelled(s) { return /cancel/i.test(s || ''); }
-
-  // ---------- load file ----------
-  function loadText(text, name) {
-    var rows = parseCSV(text);
-    if (rows.length < 2) { toast('That file has no data rows.', 'bad'); return; }
-    var headers = rows[0].map(function (h) { return String(h).trim(); });
-    var body = rows.slice(1).filter(function (r) { return r.some(function (v) { return String(v).trim() !== ''; }); });
-    var hadEdits = S.deliveries && S.deliveries.length;
-    if (hadEdits && !confirm('Replace the current data (' + S.deliveries.length + ' deliveries, driver assignments and extras)?')) return;
-    S = {
-      fileName: name, headers: headers, rows: body, mapping: autoMap(headers), carrier: '', date: '',
-      dateOverride: '', statuses: null, deliveries: [], routeAdj: {}, applied: false
-    };
-    view.selected = {};
-    initFilters();
-    persistSession();
-    renderUpload();
-    renderAll();
-  }
-
-  function initFilters() {
-    var carriers = distinct('carrier');
-    var dodo = carriers.filter(function (c) { return /dodo/i.test(c); })[0];
-    S.carrier = dodo || '';
-    var statuses = distinct('status');
-    S.statuses = statuses.filter(function (s) { return !isCancelled(s); });
-    var dates = dateCounts();
-    var best = Object.keys(dates).sort(function (a, b) { return dates[b] - dates[a]; })[0];
-    S.date = Object.keys(dates).length > 1 ? best : '';
-    if (!S.mapping.date) S.dateOverride = S.dateOverride || ymdLondon(new Date());
-  }
-
-  function distinct(key) {
-    if (!S.mapping[key]) return [];
+  // ---------- orders ----------
+  function buildOrders() {
+    excluded = { carrier: 0, cancelled: 0 };
     var seen = {};
-    S.rows.forEach(function (r) { var v = stripQuotes(col(r, key)); if (v) seen[v] = (seen[v] || 0) + 1; });
-    return Object.keys(seen).sort();
-  }
-
-  function dateCounts(ignoreDate) {
-    var out = {};
-    S.rows.forEach(function (r) {
-      if (!passesFilters(r, true)) return;
-      var d = rowDate(r) || '';
-      out[d] = (out[d] || 0) + 1;
+    var kmCol = /\bkm\b|kilomet/i.test(S.mapping.distance || '');
+    var out = [];
+    S.rows.forEach(function (r, idx) {
+      if (!includeRow(r)) return;
+      var date = rowDate(r);
+      if (S.date && date !== S.date) return;
+      var id = col(r, 'orderId') || ('Row ' + (idx + 2));
+      var key = seen[id] ? id + '#' + idx : id;
+      seen[key] = true;
+      var e = S.edits[key] || {};
+      var pickupAddress = col(r, 'pickupAddress');
+      var address = col(r, 'address');
+      var rawDist = col(r, 'distance').replace(/[^0-9.]/g, '');
+      var o = {
+        key: key, id: id, date: date,
+        merchant: col(r, 'merchant'), merchantPhone: col(r, 'merchantPhone'),
+        pickupAddress: pickupAddress, pickupPostcode: postcodeOf(pickupAddress),
+        pickupSlot: col(r, 'pickupSlot'),
+        customer: col(r, 'customer'), phone: col(r, 'phone'),
+        address: address, postcode: postcodeOf(address),
+        deliverySlot: col(r, 'deliverySlot'), instructions: col(r, 'instructions'),
+        parcels: Math.max(1, parseInt(col(r, 'parcels'), 10) || 1),
+        parcelsGiven: col(r, 'parcels') !== '',
+        driver: e.driver != null ? e.driver : col(r, 'driver'),
+        vehicle: col(r, 'vehicle'),
+        stop: parseFloat(col(r, 'stop')),
+        extra: e.extra != null ? e.extra : (parseFloat(col(r, 'extra').replace(/[^0-9.\-]/g, '')) || ''),
+        remark: e.remark != null ? e.remark : col(r, 'remark'),
+        distance: null, distanceSource: 'missing'
+      };
+      if (e.distance != null) { o.distance = e.distance; o.distanceSource = 'manual'; }
+      else if (rawDist !== '' && !isNaN(rawDist)) { o.distance = Math.round(Number(rawDist) * (kmCol ? 0.621371 : 1) * 100) / 100; o.distanceSource = 'csv'; }
+      else {
+        var c = distCache[normPc(o.pickupPostcode) + '>' + normPc(o.postcode)];
+        if (c) { o.distance = c.mi; o.distanceSource = c.src; }
+      }
+      out.push(o);
     });
     return out;
   }
 
-  function passesFilters(r, ignoreDate) {
-    if (S.carrier && S.mapping.carrier && stripQuotes(col(r, 'carrier')) !== S.carrier) return false;
-    if (S.statuses && S.mapping.status) {
-      var st = stripQuotes(col(r, 'status'));
-      if (st && S.statuses.indexOf(st) < 0) return false;
-    }
-    if (!ignoreDate && S.date && rowDate(r) !== S.date) return false;
-    return true;
-  }
-
-  // Build deliveries from rows + mapping, keeping edits made earlier.
-  function applyMapping() {
-    var prev = {};
-    (S.deliveries || []).forEach(function (d) { prev[d.key] = d; });
-    var seenKeys = {};
-    var out = [];
-    S.rows.forEach(function (r, idx) {
-      if (!passesFilters(r)) return;
-      var id = stripQuotes(col(r, 'orderId')) || ('row ' + (idx + 2));
-      var key = id;
-      if (seenKeys[key]) key = id + '#' + idx;
-      seenKeys[key] = true;
-      var rawDist = stripQuotes(col(r, 'distance')).replace(/[^0-9.\-]/g, '');
-      var csvDist = rawDist !== '' && !isNaN(rawDist) ? Number(rawDist) * (isKm() ? 0.621371 : 1) : null;
-      var p = prev[key] || {};
-      var d = {
-        key: key,
-        id: id,
-        row: idx,
-        merchant: stripQuotes(col(r, 'merchant')),
-        customer: stripQuotes(col(r, 'customer')),
-        date: rowDate(r),
-        pickup: prettyPostcode(col(r, 'pickup')),
-        dropoff: prettyPostcode(col(r, 'dropoff')),
-        route: stripQuotes(col(r, 'route')),
-        status: stripQuotes(col(r, 'status')),
-        driver: p.driver != null ? p.driver : stripQuotes(col(r, 'driver')),
-        extra: p.extra || '',
-        remark: p.remark || '',
-        distance: null,
-        distanceSource: 'missing'
-      };
-      if (p.distanceSource === 'manual') {
-        d.distance = p.distance; d.distanceSource = 'manual';
-      } else if (csvDist !== null) {
-        d.distance = Math.round(csvDist * 100) / 100; d.distanceSource = 'csv';
-      } else {
-        var c = distCache[pairKey(d.pickup, d.dropoff)];
-        if (c) { d.distance = c.mi; d.distanceSource = c.src; }
-      }
-      if (d.driver) addToRoster(d.driver);
-      out.push(d);
+  function recalc() {
+    var orders = buildOrders();
+    var r = P.calculate(orders, settings.pricing, S.routeAdj);
+    var byKey = {};
+    r.deliveries.forEach(function (d) { byKey[d.key] = d; });
+    var drivers = {};
+    r.deliveries.forEach(function (d) {
+      var name = d.driver || '';
+      var g = drivers[name] = drivers[name] || { name: name, orders: [], vehicles: {}, parcels: 0, miles: 0 };
+      g.orders.push(d);
+      g.parcels += d.parcels;
+      if (d.distance != null) g.miles += d.distance;
+      if (d.vehicle) g.vehicles[d.vehicle] = 1;
     });
-    S.deliveries = out;
-    S.applied = true;
-    persistSession();
+    var pay = {};
+    r.drivers.forEach(function (d) { pay[d.driver] = d; });
+    var list = Object.keys(drivers).filter(Boolean).sort(function (a, b) { return a.localeCompare(b); }).map(function (n) {
+      var g = drivers[n];
+      g.pay = pay[n];
+      g.routes = r.routes.filter(function (x) { return x.driver === n; });
+      g.miles = P.money(g.miles);
+      return g;
+    });
+    result = {
+      calc: r, drivers: list, unassigned: drivers[''] ? drivers[''].orders : [],
+      orders: r.deliveries, parcels: r.deliveries.reduce(function (s, d) { return s + d.parcels; }, 0)
+    };
+    return result;
   }
 
-  function addToRoster(name) {
-    name = String(name || '').trim();
-    if (!name) return;
-    if (roster.some(function (r) { return r.toLowerCase() === name.toLowerCase(); })) return;
-    roster.push(name);
-    roster.sort(function (a, b) { return a.localeCompare(b); });
-    save(LS.roster, roster);
-  }
-  function canonicalDriver(name) {
-    name = String(name || '').trim().replace(/\s+/g, ' ');
-    var hit = roster.filter(function (r) { return r.toLowerCase() === name.toLowerCase(); })[0];
-    return hit || name;
-  }
-
-  // ---------- distances ----------
-  function pairKey(a, b) { return normPostcode(a) + '>' + normPostcode(b); }
-
-  function haversineMiles(a, b) {
-    var R = 3958.7613, rad = Math.PI / 180;
-    var dLat = (b[0] - a[0]) * rad, dLon = (b[1] - a[1]) * rad;
-    var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return 2 * R * Math.asin(Math.sqrt(h));
-  }
-
+  // ---------- distances (only when the CSV has none) ----------
   function fetchJSON(url, opts, ms) {
     var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var t = ctl ? setTimeout(function () { ctl.abort(); }, ms || 20000) : null;
     return fetch(url, Object.assign({}, opts || {}, ctl ? { signal: ctl.signal } : {}))
-      .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .finally(function () { if (t) clearTimeout(t); });
   }
-
-  function geocode(postcodes) {
-    var need = postcodes.filter(function (p) { return p && !geoCache[normPostcode(p)]; });
+  function haversine(a, b) {
+    var R = 3958.7613, k = Math.PI / 180, dLat = (b[0] - a[0]) * k, dLon = (b[1] - a[1]) * k;
+    var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a[0] * k) * Math.cos(b[0] * k) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  var distRunning = false;
+  function lookupDistances() {
+    if (distRunning || !settings.roadDistance || !navigator.onLine) return;
+    var need = buildOrders().filter(function (o) { return o.distance == null && o.pickupPostcode && o.postcode; });
+    if (!need.length) return;
+    distRunning = true;
+    var pcs = {};
+    need.forEach(function (o) { pcs[o.pickupPostcode] = 1; pcs[o.postcode] = 1; });
+    var todo = Object.keys(pcs).filter(function (p) { return !geoCache[normPc(p)]; });
     var chunks = [];
-    for (var i = 0; i < need.length; i += 100) chunks.push(need.slice(i, i + 100));
-    return chunks.reduce(function (pr, chunk) {
+    for (var i = 0; i < todo.length; i += 100) chunks.push(todo.slice(i, i + 100));
+    chunks.reduce(function (pr, ch) {
       return pr.then(function () {
-        return fetchJSON('https://api.postcodes.io/postcodes', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ postcodes: chunk })
-        }).then(function (j) {
-          (j.result || []).forEach(function (x) {
-            if (x.result) geoCache[normPostcode(x.query)] = [x.result.latitude, x.result.longitude];
-          });
-        });
+        return fetchJSON('https://api.postcodes.io/postcodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ postcodes: ch }) })
+          .then(function (j) { (j.result || []).forEach(function (x) { if (x.result) geoCache[normPc(x.query)] = [x.result.latitude, x.result.longitude]; }); });
       });
     }, Promise.resolve()).then(function () {
-      // Terminated postcodes are not in the bulk endpoint; try them one by one.
-      var missing = need.filter(function (p) { return !geoCache[normPostcode(p)]; });
-      return Promise.all(missing.map(function (p) {
-        return fetchJSON('https://api.postcodes.io/terminated_postcodes/' + encodeURIComponent(normPostcode(p)))
-          .then(function (j) { if (j.result) geoCache[normPostcode(p)] = [j.result.latitude, j.result.longitude]; })
-          .catch(function () {});
-      }));
-    }).then(function () { save(LS.geo, geoCache); });
-  }
-
-  // OSRM table: one pickup → many drop-offs per request.
-  function roadDistances(pickup, drops) {
-    var from = geoCache[normPostcode(pickup)];
-    var out = {};
-    var chunks = [];
-    for (var i = 0; i < drops.length; i += 80) chunks.push(drops.slice(i, i + 80));
-    return chunks.reduce(function (pr, chunk) {
-      return pr.then(function () {
-        var coords = [from].concat(chunk.map(function (d) { return geoCache[normPostcode(d)]; }));
-        var path = coords.map(function (c) { return c[1].toFixed(6) + ',' + c[0].toFixed(6); }).join(';');
-        var dest = chunk.map(function (_, k) { return k + 1; }).join(';');
-        var url = 'https://router.project-osrm.org/table/v1/driving/' + path +
-          '?sources=0&destinations=' + dest + '&annotations=distance';
-        return fetchJSON(url, null, 30000).then(function (j) {
-          var row = (j.distances || [])[0] || [];
-          chunk.forEach(function (d, k) {
-            if (row[k] != null) out[normPostcode(d)] = row[k] / 1609.344;
-          });
-        });
-      });
-    }, Promise.resolve()).then(function () { return out; });
-  }
-
-  var distRunning = false;
-  function calculateDistances(force) {
-    if (distRunning) return;
-    var targets = S.deliveries.filter(function (d) {
-      return d.distanceSource !== 'csv' && d.distanceSource !== 'manual' && (force || d.distance == null) && d.pickup && d.dropoff;
-    });
-    var noPc = S.deliveries.filter(function (d) { return d.distance == null && (!d.pickup || !d.dropoff); }).length;
-    if (!targets.length) {
-      setDistStatus(noPc ? '<div class="notice warn">' + noPc + ' deliveries have no postcodes — type the miles in manually.</div>' : '');
-      return;
-    }
-    if (!navigator.onLine) {
-      setDistStatus('<div class="notice warn">Offline — ' + targets.length + ' distances can\'t be looked up now. Enter miles manually, or click “Calculate distances” when back online.</div>');
-      return;
-    }
-    distRunning = true;
-    setDistStatus('<div class="notice">Looking up ' + targets.length + ' distances…</div>');
-    var pcs = {};
-    targets.forEach(function (d) { pcs[d.pickup] = 1; pcs[d.dropoff] = 1; });
-    var roadFailed = false;
-    geocode(Object.keys(pcs)).then(function () {
-      if (!settings.roadDistance) return {};
+      save(LS.geo, geoCache);
       var byPickup = {};
-      targets.forEach(function (d) {
-        if (!geoCache[normPostcode(d.pickup)] || !geoCache[normPostcode(d.dropoff)]) return;
-        (byPickup[d.pickup] = byPickup[d.pickup] || {})[d.dropoff] = 1;
+      need.forEach(function (o) {
+        if (geoCache[normPc(o.pickupPostcode)] && geoCache[normPc(o.postcode)]) (byPickup[o.pickupPostcode] = byPickup[o.pickupPostcode] || {})[o.postcode] = 1;
       });
-      var res = {};
       return Object.keys(byPickup).reduce(function (pr, pu) {
         return pr.then(function () {
-          return roadDistances(pu, Object.keys(byPickup[pu])).then(function (m) {
-            Object.keys(m).forEach(function (k) { res[normPostcode(pu) + '>' + k] = m[k]; });
-          }).catch(function () { roadFailed = true; });
+          var drops = Object.keys(byPickup[pu]).slice(0, 90);
+          var coords = [geoCache[normPc(pu)]].concat(drops.map(function (d) { return geoCache[normPc(d)]; }));
+          var url = 'https://router.project-osrm.org/table/v1/driving/' +
+            coords.map(function (c) { return c[1].toFixed(6) + ',' + c[0].toFixed(6); }).join(';') +
+            '?sources=0&destinations=' + drops.map(function (_, k) { return k + 1; }).join(';') + '&annotations=distance';
+          return fetchJSON(url, null, 30000).then(function (j) {
+            var row = (j.distances || [])[0] || [];
+            drops.forEach(function (d, k) { if (row[k] != null) distCache[normPc(pu) + '>' + normPc(d)] = { mi: Math.round(row[k] / 1609.344 * 100) / 100, src: 'road' }; });
+          }).catch(function () {
+            drops.forEach(function (d) {
+              distCache[normPc(pu) + '>' + normPc(d)] = { mi: Math.round(haversine(geoCache[normPc(pu)], geoCache[normPc(d)]) * 100) / 100, src: 'estimate' };
+            });
+          });
         });
-      }, Promise.resolve()).then(function () { return res; });
-    }).then(function (road) {
-      var done = 0, failed = 0;
-      targets.forEach(function (d) {
-        var k = pairKey(d.pickup, d.dropoff);
-        var a = geoCache[normPostcode(d.pickup)], b = geoCache[normPostcode(d.dropoff)];
-        if (road[k] != null) {
-          distCache[k] = { mi: Math.round(road[k] * 100) / 100, src: 'road' };
-        } else if (a && b) {
-          distCache[k] = { mi: Math.round(haversineMiles(a, b) * (Number(settings.straightFactor) || 1) * 100) / 100, src: 'straight' };
-        } else { failed++; return; }
-        d.distance = distCache[k].mi;
-        d.distanceSource = distCache[k].src;
-        done++;
-      });
-      save(LS.dist, distCache);
-      persistSession();
-      var msg = '<div class="notice ok">Distances found for ' + done + ' deliveries.</div>';
-      if (roadFailed || targets.some(function (d) { return d.distanceSource === 'straight'; })) {
-        msg += '<div class="notice warn">Road routing was unavailable for some — those use a straight-line estimate (marked “est.”). Check them before paying.</div>';
-      }
-      if (failed) msg += '<div class="notice bad">' + failed + ' postcodes couldn\'t be found — enter miles manually.</div>';
-      setDistStatus(msg);
-      renderAll();
-    }).catch(function (e) {
-      setDistStatus('<div class="notice bad">Distance lookup failed (' + esc(e.message) + '). Enter miles manually or try again.</div>');
-    }).finally(function () { distRunning = false; });
+      }, Promise.resolve());
+    }).then(function () { save(LS.dist, distCache); render(); })
+      .catch(function () { /* stays "needs miles"; user can type them */ })
+      .finally(function () { distRunning = false; });
   }
-  function setDistStatus(html) { $('#distStatus').innerHTML = html; }
 
-  // ---------- calculation ----------
-  function recalc() {
-    var dels = S.deliveries.map(function (d) {
-      return { key: d.key, id: d.id, date: d.date, driver: d.driver, distance: d.distance, extra: d.extra, remark: d.remark,
-        merchant: d.merchant, customer: d.customer, pickup: d.pickup, dropoff: d.dropoff, route: d.route,
-        distanceSource: d.distanceSource, status: d.status };
-    });
-    result = P.calculate(dels, settings.pricing, S.routeAdj);
-    return result;
+  // ---------- loading ----------
+  function loadText(text, name) {
+    var rows = parseCSV(text);
+    if (rows.length < 2) { toast('That file has no data rows.', 'bad'); return; }
+    var headers = rows[0].map(function (h) { return String(h).trim(); });
+    S = emptySession();
+    S.fileName = name;
+    S.headers = headers;
+    S.rows = rows.slice(1).filter(function (r) { return r.some(function (v) { return String(v).trim() !== ''; }); });
+    S.mapping = autoMap(headers);
+    initDate();
+    view.driver = '';
+    persist();
+    render();
+    lookupDistances();
+  }
+  function initDate() {
+    S.hasDodo = !!S.mapping.carrier && S.rows.some(function (r) { return /dodo/i.test(col(r, 'carrier')); });
+    if (!S.mapping.date && !S.mapping.deliverySlot) S.dateOverride = S.dateOverride || todayYmd();
+    var counts = dateCounts();
+    var keys = Object.keys(counts);
+    S.date = keys.length > 1 ? keys.sort(function (a, b) { return counts[b] - counts[a]; })[0] : '';
+    if (keys.length === 1 && !keys[0]) S.dateOverride = S.dateOverride || todayYmd();
+  }
+  function dateCounts() {
+    var out = {};
+    S.rows.forEach(function (r) { if (!includeRow(r)) return; var d = rowDate(r); out[d] = (out[d] || 0) + 1; });
+    return out;
+  }
+  function readFile(file) {
+    var r = new FileReader();
+    r.onload = function () { loadText(String(r.result), file.name); };
+    r.onerror = function () { toast('Could not read that file.', 'bad'); };
+    r.readAsText(file);
+  }
+  function setEdit(key, field, value) {
+    var e = S.edits[key] = S.edits[key] || {};
+    if (value === null || value === undefined) delete e[field]; else e[field] = value;
+    persist();
   }
 
   // ---------- rendering ----------
-  function renderAll() {
-    recalc();
-    renderFormula();
-    renderActionBar();
-    if (view.tab === 'deliveries') renderDeliveries();
-    if (view.tab === 'routes') renderRoutes();
-    if (view.tab === 'sheets') renderSheets();
-    renderQueuePill();
-  }
-
-  function renderFormula() {
-    $('#formulaText').textContent = P.describe(settings.pricing);
-    $$('[data-cfg]').forEach(function (el) {
-      var k = el.getAttribute('data-cfg');
-      el.textContent = k === 'bandMiles' ? settings.pricing[k] : gbp(settings.pricing[k]);
-    });
-    $('#bandTable').innerHTML = P.bandTable(30, settings.pricing).map(function (b) {
-      return '<div><span>' + b.from.toFixed(1) + '–' + b.to.toFixed(1) + '</span><b class="num">' + gbp(b.fee) + '</b></div>';
-    }).join('');
-  }
-
-  function renderActionBar() {
-    $('#abDeliveries').textContent = result.deliveries.length;
-    $('#abUnassigned').textContent = result.unassigned;
-    $('#abUnpriced').textContent = result.unpriced;
-    $('#abDrivers').textContent = result.drivers.length;
-    $('#abTotal').textContent = gbp(result.totals.payable);
-    $('#abUnassigned').style.color = result.unassigned ? 'var(--warn)' : '';
-    $('#abUnpriced').style.color = result.unpriced ? 'var(--bad)' : '';
-  }
-
-  function renderUpload() {
+  function render() {
     var has = S.headers && S.headers.length;
-    $('#mappingCard').classList.toggle('hidden', !has);
-    $('#fileInfo').classList.toggle('hidden', !has);
+    $('#emptyView').classList.toggle('hidden', !!has);
+    $('#loadedView').classList.toggle('hidden', !has);
+    $('#actionbar').classList.toggle('hidden', !has);
+    renderQueuePill();
     if (!has) return;
-    $('#fileInfo').innerHTML = '<b>' + esc(S.fileName) + '</b> — ' + S.rows.length + ' rows, ' + S.headers.length + ' columns';
-    var opts = function (sel) {
-      return '<option value="">— none —</option>' + S.headers.map(function (h) {
-        return '<option' + (h === sel ? ' selected' : '') + '>' + esc(h) + '</option>';
-      }).join('');
-    };
-    $('#mappingGrid').innerHTML = FIELDS.map(function (f) {
-      return '<label class="field">' + esc(f.label) + (f.req ? ' *' : '') +
-        '<select data-map="' + f.key + '">' + opts(S.mapping[f.key]) + '</select></label>';
-    }).join('');
-    renderFilters();
+    recalc();
+    renderFileBar();
+    renderStats();
+    renderChips();
+    renderDrivers();
+    var t = result.calc.totals;
+    $('#abTotal').textContent = gbp(t.payable);
+    $('#abMeta').textContent = result.drivers.length + ' drivers · ' + result.orders.length + ' orders' + (S.date || S.dateOverride ? ' · ' + tabLabel(S.date || S.dateOverride) : '');
   }
 
-  function renderFilters() {
-    var carriers = distinct('carrier');
-    $('#fCarrier').innerHTML = '<option value="">All carriers</option>' + carriers.map(function (c) {
-      return '<option' + (c === S.carrier ? ' selected' : '') + '>' + esc(c) + '</option>';
-    }).join('');
-    $('#fCarrier').disabled = !S.mapping.carrier;
+  function renderFileBar() {
+    $('#fileName').textContent = S.fileName;
+    var dc = dateCounts(), keys = Object.keys(dc).sort();
+    var ex = [];
+    buildOrders();
+    if (excluded.carrier) ex.push(excluded.carrier + ' non-Dodo');
+    if (excluded.cancelled) ex.push(excluded.cancelled + ' cancelled');
+    $('#fileMeta').textContent = S.rows.length + ' rows' + (ex.length ? ' · skipped ' + ex.join(', ') : '');
 
-    var dc = dateCounts();
-    var keys = Object.keys(dc).sort();
-    $('#fDate').innerHTML = '<option value="">All dates (' + keys.reduce(function (s, k) { return s + dc[k]; }, 0) + ')</option>' +
-      keys.map(function (k) {
-        return '<option value="' + esc(k) + '"' + (k === S.date ? ' selected' : '') + '>' + esc(k ? tabLabel(k) : 'No date') + ' (' + dc[k] + ')</option>';
-      }).join('');
-    $('#fDateOverrideWrap').classList.toggle('hidden', !!S.mapping.date);
+    var noDateCol = !S.mapping.date && !S.mapping.deliverySlot;
+    var dateUnknown = noDateCol || (keys.length === 1 && !keys[0]);
+    $('#fDate').classList.toggle('hidden', dateUnknown);
+    $('#fDateOverride').classList.toggle('hidden', !dateUnknown);
     $('#fDateOverride').value = S.dateOverride || '';
-
-    var statuses = distinct('status');
-    $('#fStatuses').innerHTML = statuses.length ? statuses.map(function (s) {
-      var on = !S.statuses || S.statuses.indexOf(s) >= 0;
-      return '<label class="row small" style="gap:4px;margin-right:10px"><input type="checkbox" data-status="' + esc(s) + '"' + (on ? ' checked' : '') + '>' + esc(s) + '</label>';
-    }).join('') : '<span class="small muted">No status column</span>';
-
-    var n = S.rows.filter(function (r) { return passesFilters(r); }).length;
-    $('#includeCount').textContent = n + ' of ' + S.rows.length + ' rows will be included';
+    $('#fDate').innerHTML = (keys.length > 1 ? '<option value="">All dates</option>' : '') + keys.map(function (k) {
+      return '<option value="' + esc(k) + '"' + (k === S.date ? ' selected' : '') + '>' + esc(k ? tabLabel(k) : 'No date') + ' (' + dc[k] + ')</option>';
+    }).join('');
 
     var notes = [];
-    if (!S.mapping.orderId) notes.push('<div class="notice warn">Pick the Order ID column.</div>');
-    if (!S.mapping.distance && !(S.mapping.pickup && S.mapping.dropoff)) {
-      notes.push('<div class="notice warn">No distance or postcode columns found — you\'ll need to enter miles for each delivery.</div>');
-    } else if (!S.mapping.distance) {
-      notes.push('<div class="notice">No distance column — distances will be calculated from pickup &amp; drop-off postcodes (road distance). For exact parity with Evermile, include a distance column in the export.</div>');
-    }
-    if (keys.length > 1) {
-      notes.push('<div class="notice">This file has ' + keys.length + ' delivery dates. ' +
-        (S.date ? 'Showing <b>' + tabLabel(S.date) + '</b> only.' : 'All dates included — each date gets its own Google Sheets tab.') + '</div>');
-    }
-    $('#mappingNotice').innerHTML = notes.join('');
-  }
+    var missingReq = !S.mapping.orderId;
+    if (missingReq) notes.push('<div class="notice bad">Couldn\'t find the Order ID column. Open <b>Column matching</b> below and pick it.</div>');
+    if (!S.mapping.driver) notes.push('<div class="notice warn">No driver column found. Assign drivers in the <b>Unassigned</b> list below.</div>');
+    var nodist = result.orders.filter(function (o) { return o.distance == null; }).length;
+    if (nodist) notes.push('<div class="notice warn">' + nodist + ' order' + (nodist > 1 ? 's have' : ' has') + ' no distance, so the fee can\'t be calculated. Type the miles in the driver\'s <b>Pay</b> section.</div>');
+    var est = result.orders.filter(function (o) { return o.distanceSource === 'road' || o.distanceSource === 'estimate'; }).length;
+    if (est) notes.push('<div class="notice info">' + est + ' distances were worked out from postcodes (no distance in the CSV). Check them in the Pay section.</div>');
+    $('#notices').innerHTML = notes.join('');
 
-  function matchesView(d) {
-    if (view.filter === 'unassigned' && d.driver) return false;
-    if (view.filter === 'nodist' && d.fee != null) return false;
-    if (view.search) {
-      var s = view.search.toLowerCase();
-      var hay = [d.id, d.merchant, d.customer, d.pickup, d.dropoff, d.driver, d.route, d.remark].join(' ').toLowerCase();
-      if (hay.indexOf(s) < 0) return false;
-    }
-    return true;
-  }
-
-  var SRC_LABEL = { csv: 'CSV', road: 'road', straight: 'est.', manual: 'manual', missing: 'missing' };
-  var SRC_TITLE = {
-    csv: 'Distance taken from the uploaded file',
-    road: 'Road distance from OpenStreetMap routing (pickup → drop-off)',
-    straight: 'Straight-line estimate — check before paying',
-    manual: 'Entered manually',
-    missing: 'No distance yet'
-  };
-
-  function renderDeliveries() {
-    var rows = result.deliveries;
-    var visible = rows.filter(matchesView);
-    $('#driverList').innerHTML = roster.map(function (r) { return '<option value="' + esc(r) + '">'; }).join('');
-    var multiDate = Object.keys(rows.reduce(function (o, d) { o[d.date] = 1; return o; }, {})).length > 1;
-    var html = visible.map(function (d) {
-      var p = d.pricing;
-      var sel = view.selected[d.key];
-      var feeCell = p.ok
-        ? '<b>' + gbp(p.fee) + '</b>' + (p.atFloor ? '<span class="badge floor" title="Below minimum">min</span>' : '') +
-          '<span class="sub">' + p.bandedMiles.toFixed(1) + ' mi × ' + gbp(settings.pricing.perMile) + ' + ' + gbp(settings.pricing.base) + ' = ' + gbp(p.card) + '</span>'
-        : '<span class="badge missing">no distance</span>';
-      return '<tr data-key="' + esc(d.key) + '" class="' + (sel ? 'selected' : '') + '" title="' + esc(p.breakdown) + '">' +
-        '<td><input type="checkbox" class="sel"' + (sel ? ' checked' : '') + ' aria-label="Select ' + esc(d.id) + '"></td>' +
-        '<td><b>' + esc(d.id) + '</b>' + (multiDate ? '<span class="sub">' + esc(tabLabel(d.date)) + '</span>' : '') +
-          (d.route ? '<span class="sub">' + esc(d.route) + '</span>' : '') + '</td>' +
-        '<td>' + esc(d.merchant) + '<span class="sub">' + esc(d.customer) + '</span></td>' +
-        '<td class="small">' + esc(d.pickup || '—') + ' → ' + esc(d.dropoff || '—') + '</td>' +
-        '<td class="num"><input class="dist" type="number" step="0.01" min="0" value="' + (d.distance == null ? '' : d.distance) + '" aria-label="Distance">' +
-          '<span class="badge ' + d.distanceSource + '" title="' + SRC_TITLE[d.distanceSource] + '">' + SRC_LABEL[d.distanceSource] + '</span></td>' +
-        '<td><input class="driver" list="driverList" value="' + esc(d.driver) + '" placeholder="Assign…" aria-label="Driver"></td>' +
-        '<td class="num">' + feeCell + '</td>' +
-        '<td class="num"><input class="money extra" type="number" step="0.01" value="' + (d.extra ? d.extra : '') + '" placeholder="0.00" aria-label="Extra charge"></td>' +
-        '<td><input class="remark" value="' + esc(d.remark) + '" placeholder="Remark" aria-label="Remark"></td>' +
-        '<td class="num"><b>' + (d.dropTotal == null ? '—' : gbp(d.dropTotal)) + '</b></td>' +
-        '</tr>';
+    var opts = function (sel) {
+      return '<option value="">— not in file —</option>' + S.headers.map(function (h) { return '<option' + (h === sel ? ' selected' : '') + '>' + esc(h) + '</option>'; }).join('');
+    };
+    $('#mappingGrid').innerHTML = FIELDS.map(function (f) {
+      return '<label class="field">' + esc(f.label) + (f.req ? ' *' : '') + '<select data-map="' + f.key + '">' + opts(S.mapping[f.key]) + '</select></label>';
     }).join('');
-    if (!rows.length) html = '<tr><td colspan="10" class="muted" style="padding:24px;text-align:center">Upload a CSV in step 1 to get started.</td></tr>';
-    else if (!visible.length) html = '<tr><td colspan="10" class="muted" style="padding:24px;text-align:center">Nothing matches this filter.</td></tr>';
-    $('#delTable tbody').innerHTML = html;
-    var nSel = Object.keys(view.selected).filter(function (k) { return view.selected[k]; }).length;
-    $('#selCount').textContent = nSel + ' selected';
-    $('#selAll').checked = visible.length > 0 && visible.every(function (d) { return view.selected[d.key]; });
-    $$('#viewFilter button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.f === view.filter)); });
+    if (missingReq) $('#colsDetails').open = true;
   }
 
-  function renderRoutes() {
-    var t = result.totals;
+  function renderStats() {
+    var t = result.calc.totals;
+    var miles = result.orders.reduce(function (s, o) { return s + (o.distance || 0); }, 0);
     $('#stats').innerHTML = [
-      ['Drivers', result.drivers.length], ['Routes', result.routes.length], ['Drops', t.drops],
-      ['Delivery fees', gbp(t.fees)], ['Extras & adjustments', gbp(t.extras + t.dropBonus + t.adjustments)],
-      ['Total payable', gbp(t.payable)]
+      ['Drivers', result.drivers.length], ['Orders', result.orders.length], ['Parcels', result.parcels],
+      ['Miles', miles.toFixed(1)], ['Total pay', gbp(t.payable)]
     ].map(function (s) { return '<div class="stat"><div class="k">' + s[0] + '</div><div class="v">' + s[1] + '</div></div>'; }).join('');
-
-    var warn = '';
-    if (result.unassigned) warn += '<div class="notice warn">' + result.unassigned + ' deliveries have no driver and are not in any total.</div>';
-    if (result.unpriced) warn += '<div class="notice bad">' + result.unpriced + ' deliveries have no distance and are priced at £0 until you add miles.</div>';
-    var showBonus = settings.pricing.extraDropFee > 0;
-
-    $('#driverTable').innerHTML =
-      '<thead><tr><th>Driver</th><th class="num">Routes</th><th class="num">Drops</th><th class="num">Miles</th>' +
-      '<th class="num">Delivery fees</th><th class="num">Extra charges</th>' + (showBonus ? '<th class="num">Multi-drop</th>' : '') +
-      '<th class="num">Route adj.</th><th>Remarks</th><th class="num">Final payable</th></tr></thead><tbody>' +
-      result.drivers.map(function (d) {
-        return '<tr><td><b>' + esc(d.driver) + '</b>' + (d.unpriced ? ' <span class="badge missing">' + d.unpriced + ' unpriced</span>' : '') + '</td>' +
-          '<td class="num">' + d.routes + '</td><td class="num">' + d.drops + '</td><td class="num">' + d.miles.toFixed(2) + '</td>' +
-          '<td class="num">' + gbp(d.fees) + '</td><td class="num">' + gbp(d.extras) + '</td>' +
-          (showBonus ? '<td class="num">' + gbp(d.dropBonus) + '</td>' : '') +
-          '<td class="num">' + gbp(d.adjustment) + '</td><td class="small">' + esc(d.adjustmentRemark) + '</td>' +
-          '<td class="num"><b>' + gbp(d.payable) + '</b></td></tr>';
-      }).join('') +
-      (result.drivers.length ? '' : '<tr><td colspan="10" class="muted" style="padding:20px;text-align:center">Assign drivers in step 2.</td></tr>') +
-      '</tbody><tfoot><tr><td>Total</td><td></td><td class="num">' + t.drops + '</td><td></td><td class="num">' + gbp(t.fees) + '</td>' +
-      '<td class="num">' + gbp(t.extras) + '</td>' + (showBonus ? '<td class="num">' + gbp(t.dropBonus) + '</td>' : '') +
-      '<td class="num">' + gbp(t.adjustments) + '</td><td></td><td class="num">' + gbp(t.payable) + '</td></tr></tfoot>';
-
-    var open = {};
-    $$('#routeList details[open]').forEach(function (d) { open[d.dataset.key] = 1; });
-    $('#routeList').innerHTML = warn + result.routes.map(function (r) {
-      var adj = S.routeAdj[r.key] || {};
-      return '<details class="route" data-key="' + esc(r.key) + '"' + (open[r.key] ? ' open' : '') + '>' +
-        '<summary><span class="chev">▶</span><span class="who">' + esc(r.driver) + '<span class="sub">' + esc(tabLabel(r.date)) + '</span></span>' +
-        '<span><b>' + r.drops + '</b> drops</span><span>' + r.miles.toFixed(2) + ' mi</span>' +
-        '<span class="muted">fees ' + gbp(r.fees) + '</span>' +
-        (r.extras ? '<span class="muted">extras ' + gbp(r.extras) + '</span>' : '') +
-        (r.dropBonus ? '<span class="muted">multi-drop ' + gbp(r.dropBonus) + '</span>' : '') +
-        (r.adjustment ? '<span class="muted">adj. ' + gbp(r.adjustment) + '</span>' : '') +
-        '<span class="spacer"></span><b class="num" style="font-size:16px">' + gbp(r.total) + '</b></summary>' +
-        '<div class="body"><div class="table-wrap" style="border:0;border-radius:0"><table><thead><tr>' +
-        '<th>#</th><th>Order</th><th>Merchant</th><th>Drop-off</th><th class="num">Miles</th><th>Calculation</th>' +
-        '<th class="num">Fee</th><th class="num">Extra</th><th>Remark</th><th class="num">Total</th></tr></thead><tbody>' +
-        r.deliveries.map(function (d, i) {
-          return '<tr><td class="muted">' + (i + 1) + '</td><td>' + esc(d.id) + '</td><td>' + esc(d.merchant) + '</td>' +
-            '<td>' + esc(d.dropoff) + '</td><td class="num">' + (d.distance == null ? '—' : d.distance.toFixed(2)) + '</td>' +
-            '<td class="small">' + esc(d.pricing.breakdown) + '</td><td class="num">' + (d.fee == null ? '—' : gbp(d.fee)) + '</td>' +
-            '<td class="num">' + (d.extra ? gbp(d.extra) : '') + '</td><td class="small">' + esc(d.remark) + '</td>' +
-            '<td class="num"><b>' + (d.dropTotal == null ? '—' : gbp(d.dropTotal)) + '</b></td></tr>';
-        }).join('') +
-        '</tbody><tfoot><tr><td></td><td colspan="3">Route subtotal (' + r.drops + ' drops)</td><td class="num">' + r.miles.toFixed(2) + '</td><td></td>' +
-        '<td class="num">' + gbp(r.fees) + '</td><td class="num">' + gbp(r.extras) + '</td><td></td><td class="num">' + gbp(r.fees + r.extras) + '</td></tr></tfoot></table></div>' +
-        '<div class="adj"><span class="small" style="font-weight:600">Route extra / adjustment £</span>' +
-        '<input class="money radj" type="number" step="0.01" value="' + (adj.amount || '') + '" placeholder="0.00" data-key="' + esc(r.key) + '">' +
-        '<input class="remark rremark" value="' + esc(adj.remark || '') + '" placeholder="Reason (e.g. waiting time)" data-key="' + esc(r.key) + '" style="flex:1;min-width:180px">' +
-        '<span class="small muted">Use a negative amount for deductions.</span></div></div></details>';
-    }).join('') + (result.routes.length ? '' : '<p class="muted">No routes yet — assign drivers in step 2.</p>');
   }
 
-  function renderSheets() {
-    var ok = settings.scriptUrl && settings.token;
-    $('#sheetsStatus').innerHTML = ok
-      ? '<div class="notice ok">Connected to Apps Script endpoint. <span class="small">(' + esc(settings.scriptUrl.slice(0, 60)) + '…)</span></div>'
-      : '<div class="notice warn">Not connected yet. Open <b>Settings</b> and paste your Apps Script Web App URL and token (see README).</div>';
-    $('#queueList').innerHTML = queue.length ? '<div class="table-wrap"><table><thead><tr><th>Tab</th><th class="num">Rows</th><th>Queued</th><th>Status</th><th></th></tr></thead><tbody>' +
-      queue.map(function (q) {
-        return '<tr><td><b>' + esc(q.tabName) + '</b></td><td class="num">' + q.count + '</td><td class="small">' + esc(new Date(q.createdAt).toLocaleString('en-GB')) + '</td>' +
-          '<td class="small">' + esc(q.error ? 'Error: ' + q.error : (navigator.onLine ? 'Waiting to sync' : 'Waiting for connection')) + '</td>' +
-          '<td><button class="btn ghost danger small" data-dequeue="' + esc(q.id) + '" type="button">Remove</button></td></tr>';
-      }).join('') + '</tbody></table></div>' : '<p class="muted" style="margin:0">Nothing queued.</p>';
-    $('#historyList').innerHTML = history.length ? '<div class="table-wrap"><table><thead><tr><th>Tab</th><th>Action</th><th class="num">Deliveries</th><th class="num">Total</th><th>When</th><th></th></tr></thead><tbody>' +
-      history.slice(0, 50).map(function (h) {
-        return '<tr><td><b>' + esc(h.tabName) + '</b></td><td>' + esc(h.mode) + '</td><td class="num">' + h.count + '</td><td class="num">' + esc(h.total || '') + '</td>' +
-          '<td class="small">' + esc(new Date(h.at).toLocaleString('en-GB')) + '</td>' +
-          '<td>' + (h.url ? '<a href="' + esc(h.url) + '" target="_blank" rel="noopener">Open tab ↗</a>' : '') + '</td></tr>';
-      }).join('') + '</tbody></table></div>' : '<p class="muted" style="margin:0">No uploads yet.</p>';
+  function renderChips() {
+    var names = result.drivers.map(function (d) { return d.name; });
+    if (view.driver && view.driver !== '__unassigned' && names.indexOf(view.driver) < 0) view.driver = '';
+    if (view.driver === '__unassigned' && !result.unassigned.length) view.driver = '';
+    var html = '<button class="chip" data-driver="" aria-pressed="' + (view.driver === '') + '">All drivers</button>' +
+      result.drivers.map(function (d) {
+        return '<button class="chip" data-driver="' + esc(d.name) + '" aria-pressed="' + (view.driver === d.name) + '">' + esc(d.name) + '<span class="c">' + d.orders.length + '</span></button>';
+      }).join('') +
+      (result.unassigned.length ? '<button class="chip warn" data-driver="__unassigned" aria-pressed="' + (view.driver === '__unassigned') + '">Unassigned<span class="c">' + result.unassigned.length + '</span></button>' : '');
+    $('#chips').innerHTML = html;
+    $('#driverList').innerHTML = names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('');
+  }
+
+  function pickupGroups(orders) {
+    var g = {}, list = [];
+    orders.forEach(function (o) {
+      var k = [o.merchant, o.pickupAddress, o.pickupSlot].join('|');
+      if (!g[k]) { g[k] = { merchant: o.merchant, address: o.pickupAddress, phone: o.merchantPhone, slot: o.pickupSlot, ids: [], parcels: 0 }; list.push(g[k]); }
+      g[k].ids.push(o.id);
+      g[k].parcels += o.parcels;
+    });
+    return list.sort(function (a, b) { return slotSortKey(a.slot).localeCompare(slotSortKey(b.slot)) || a.merchant.localeCompare(b.merchant); });
+  }
+  function deliveryOrder(orders) {
+    return orders.slice().sort(function (a, b) {
+      var sa = isNaN(a.stop) ? 1e9 : a.stop, sb = isNaN(b.stop) ? 1e9 : b.stop;
+      return sa - sb || slotSortKey(a.deliverySlot).localeCompare(slotSortKey(b.deliverySlot)) || String(a.id).localeCompare(String(b.id));
+    });
+  }
+
+  var SRC = { csv: '', manual: 'edited', road: 'from postcodes', estimate: 'straight-line est.', missing: 'needs miles' };
+
+  function driverCard(d) {
+    var pay = d.pay || { payable: 0 };
+    var vehicles = Object.keys(d.vehicles).join(', ');
+    var pickups = pickupGroups(d.orders);
+    var dels = deliveryOrder(d.orders);
+    var multiDate = d.routes.length > 1;
+
+    var h = '<article class="card driver" data-driver="' + esc(d.name) + '">' +
+      '<div class="head"><div class="avatar">' + esc(initials(d.name)) + '</div>' +
+      '<div class="who"><div class="n">' + esc(d.name) + '</div><div class="m">' + [vehicles, d.orders.length + ' orders', d.parcels + ' parcels', d.miles.toFixed(1) + ' mi'].filter(Boolean).map(esc).join(' · ') + '</div></div>' +
+      '<span class="spacer"></span>' +
+      '<div class="pay"><div class="k">Pay</div><div class="v">' + gbp(pay.payable) + '</div></div>' +
+      '<button class="btn quiet noprint" data-print="' + esc(d.name) + '" type="button">Print</button></div>';
+
+    // Output 1 — Pickups
+    h += '<section class="sec-pickup"><div class="sec-title"><span class="tag p">1</span>Pickup details</div><div class="wrap"><table class="tbl stack"><thead><tr>' +
+      '<th>Order ID</th><th>Merchant</th><th class="num">Parcels</th><th>Pickup slot</th></tr></thead><tbody>' +
+      pickups.map(function (p) {
+        return '<tr><td class="id" data-l="Order ID">' + p.ids.map(esc).join('<br>') + '</td>' +
+          '<td data-l="Merchant"><b>' + esc(p.merchant || '—') + '</b>' + (p.address ? '<span class="sub">' + esc(p.address) + '</span>' : '') +
+          (p.phone ? '<span class="sub"><a class="tel" href="tel:' + esc(p.phone.replace(/[^+0-9]/g, '')) + '">' + esc(p.phone) + '</a></span>' : '') + '</td>' +
+          '<td class="num" data-l="Parcels"><b>' + p.parcels + '</b></td><td data-l="Pickup slot">' + esc(fmtSlot(p.slot) || '—') + '</td></tr>';
+      }).join('') +
+      '</tbody><tfoot><tr><td data-l="">Total to collect</td><td></td><td class="num">' + d.parcels + '</td><td></td></tr></tfoot></table></div></section>';
+
+    // Output 2 — Deliveries
+    h += '<section class="sec-delivery"><div class="sec-title"><span class="tag d">2</span>Delivery details</div><div class="wrap"><table class="tbl stack"><thead><tr>' +
+      '<th>#</th><th>Order ID</th><th>Customer</th><th>Address</th><th>Phone</th><th>Delivery slot</th><th class="num">Parcels</th><th>Instructions</th></tr></thead><tbody>' +
+      dels.map(function (o, i) {
+        return '<tr><td class="muted" data-l="Stop">' + (i + 1) + '</td><td class="id" data-l="Order ID">' + esc(o.id) + '</td>' +
+          '<td data-l="Customer">' + esc(o.customer || '—') + '</td><td data-l="Address">' + esc(o.address || '—') + '</td>' +
+          '<td data-l="Phone">' + (o.phone ? '<a class="tel" href="tel:' + esc(o.phone.replace(/[^+0-9]/g, '')) + '">' + esc(o.phone) + '</a>' : '—') + '</td>' +
+          '<td data-l="Slot">' + esc(fmtSlot(o.deliverySlot) || '—') + '</td><td class="num" data-l="Parcels">' + o.parcels + '</td>' +
+          '<td class="instr" data-l="Instructions">' + esc(o.instructions || '') + '</td></tr>';
+      }).join('') + '</tbody></table></div></section>';
+
+    // Pay (collapsed)
+    var unpriced = d.orders.filter(function (o) { return o.distance == null; }).length;
+    h += '<section class="sec-pay noprint"><details class="payd"' + (unpriced ? ' open' : '') + '><summary><span class="chev">▶</span><span class="sec-title" style="margin:0"><span class="tag f">£</span>Pay calculation</span>' +
+      (unpriced ? '<span class="badge bad">' + unpriced + ' need miles</span>' : '') +
+      '<span class="spacer"></span><b class="num">' + gbp(pay.payable) + '</b></summary>' +
+      '<div class="wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Order ID</th><th class="num">Miles</th><th>Calculation</th><th class="num">Fee</th><th class="num">Extra £</th><th>Remark</th><th class="num">Total</th></tr></thead><tbody>' +
+      dels.map(function (o) {
+        var p = o.pricing;
+        return '<tr data-key="' + esc(o.key) + '"><td class="id">' + esc(o.id) + (multiDate ? '<span class="sub">' + esc(tabLabel(o.date)) + '</span>' : '') + '</td>' +
+          '<td class="num"><input class="dist" type="number" step="0.01" min="0" value="' + (o.distance == null ? '' : o.distance) + '" aria-label="Miles">' +
+          (SRC[o.distanceSource] ? '<span class="sub"><span class="badge ' + (o.distanceSource === 'missing' ? 'bad' : (o.distanceSource === 'manual' ? '' : 'warn')) + '">' + SRC[o.distanceSource] + '</span></span>' : '') + '</td>' +
+          '<td class="small muted">' + (p.ok ? esc(p.bandedMiles.toFixed(1) + ' mi × ' + gbp(settings.pricing.perMile) + ' + ' + gbp(settings.pricing.base) + ' = ' + gbp(p.card) + (p.atFloor ? ' → min ' + gbp(settings.pricing.floor) : '')) : 'Enter miles') + '</td>' +
+          '<td class="num">' + (o.fee == null ? '—' : gbp(o.fee)) + '</td>' +
+          '<td class="num"><input class="money extra" type="number" step="0.01" value="' + (o.extra || '') + '" placeholder="0.00" aria-label="Extra charge"></td>' +
+          '<td><input class="remark" value="' + esc(o.remark) + '" placeholder="Remark" aria-label="Remark"></td>' +
+          '<td class="num"><b>' + (o.dropTotal == null ? '—' : gbp(o.dropTotal)) + '</b></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      d.routes.map(function (r) {
+        var a = S.routeAdj[r.key] || {};
+        return '<div class="adj"><span class="small" style="font-weight:650">Route extra / deduction' + (multiDate ? ' (' + esc(tabLabel(r.date)) + ')' : '') + ' £</span>' +
+          '<input class="money radj" type="number" step="0.01" data-route="' + esc(r.key) + '" value="' + (a.amount || '') + '" placeholder="0.00">' +
+          '<input class="remark rremark" data-route="' + esc(r.key) + '" value="' + esc(a.remark || '') + '" placeholder="Reason, e.g. waiting time" style="flex:1;min-width:160px"></div>';
+      }).join('') +
+      '<div class="adj small"><span class="muted">Fees ' + gbp(pay.fees || 0) + ' + extras ' + gbp(pay.extras || 0) + (pay.dropBonus ? ' + multi-drop ' + gbp(pay.dropBonus) : '') + ' + route ' + gbp(pay.adjustment || 0) + '</span><span class="spacer"></span><b>= ' + gbp(pay.payable || 0) + '</b></div>' +
+      '</details></section></article>';
+    return h;
+  }
+
+  function unassignedCard(list) {
+    return '<article class="card driver" data-driver="__unassigned"><div class="head"><div class="avatar" style="background:var(--warn)">?</div>' +
+      '<div class="who"><div class="n">Unassigned</div><div class="m">' + list.length + ' orders without a driver, not included in any pay</div></div></div>' +
+      '<section><div class="wrap"><table class="tbl stack"><thead><tr><th>Order ID</th><th>Merchant</th><th>Customer / address</th><th>Slot</th><th>Assign driver</th></tr></thead><tbody>' +
+      list.map(function (o) {
+        return '<tr data-key="' + esc(o.key) + '"><td class="id" data-l="Order ID">' + esc(o.id) + '</td><td data-l="Merchant">' + esc(o.merchant) + '</td>' +
+          '<td data-l="Customer">' + esc(o.customer) + '<span class="sub">' + esc(o.address) + '</span></td><td data-l="Slot">' + esc(fmtSlot(o.deliverySlot)) + '</td>' +
+          '<td data-l="Driver"><input class="drv" list="driverList" placeholder="Driver name" aria-label="Assign driver"></td></tr>';
+      }).join('') + '</tbody></table></div></section></article>';
+  }
+
+  function renderDrivers() {
+    var html = '';
+    if (view.driver === '__unassigned') html = unassignedCard(result.unassigned);
+    else {
+      result.drivers.forEach(function (d) { if (!view.driver || view.driver === d.name) html += driverCard(d); });
+      if (!view.driver && result.unassigned.length) html += unassignedCard(result.unassigned);
+    }
+    if (!result.orders.length) html = '<div class="card muted" style="text-align:center;padding:32px">No orders for this date.</div>';
+    // Keep open/closed state of pay sections across re-renders.
+    var open = {};
+    $$('#drivers details.payd').forEach(function (el) { open[el.closest('.driver').dataset.driver] = el.open; });
+    $('#drivers').innerHTML = html;
+    $$('#drivers details.payd').forEach(function (el) {
+      var k = el.closest('.driver').dataset.driver;
+      if (open[k] !== undefined) el.open = open[k] || el.open;
+    });
   }
 
   function renderNet() {
-    var on = navigator.onLine;
-    var pill = $('#netPill');
-    pill.className = 'pill ' + (on ? 'ok' : 'bad');
-    pill.lastElementChild.textContent = on ? 'Online' : 'Offline';
+    var on = navigator.onLine, p = $('#netPill');
+    p.className = 'pill ' + (on ? 'ok' : 'bad');
+    p.lastElementChild.textContent = on ? 'Online' : 'Offline';
   }
   function renderQueuePill() {
     var p = $('#queuePill');
     p.classList.toggle('hidden', !queue.length);
-    p.lastElementChild.textContent = queue.length + ' upload' + (queue.length > 1 ? 's' : '') + ' queued';
+    p.lastElementChild.textContent = queue.length + ' waiting to upload';
   }
 
-  // ---------- Google Sheets payload ----------
+  // ---------- Google Sheets ----------
   function buildPayloads() {
     var r = recalc();
+    var m = P.money;
     var dates = {};
-    r.deliveries.forEach(function (d) { (dates[d.date] = dates[d.date] || []).push(d); });
-    var formula = P.describe(settings.pricing);
+    r.orders.forEach(function (o) { (dates[o.date] = dates[o.date] || []).push(o); });
     return Object.keys(dates).sort().map(function (date) {
-      var dels = dates[date];
-      var routes = r.routes.filter(function (x) { return x.date === date; });
-      var drivers = {};
-      routes.forEach(function (x) {
-        var o = drivers[x.driver] = drivers[x.driver] || { routes: 0, drops: 0, miles: 0, fees: 0, extras: 0, bonus: 0, adj: 0, remarks: [], total: 0 };
-        o.routes++; o.drops += x.drops; o.miles += x.miles; o.fees += x.fees; o.extras += x.extras;
-        o.bonus += x.dropBonus; o.adj += x.adjustment; o.total += x.total;
-        if (x.adjustmentRemark) o.remarks.push(x.adjustmentRemark);
+      var orders = dates[date];
+      var names = {};
+      orders.forEach(function (o) { if (o.driver) names[o.driver] = 1; });
+      var routes = r.calc.routes.filter(function (x) { return x.date === date; });
+      var routeOf = {};
+      routes.forEach(function (x) { routeOf[x.driver] = x; });
+      var sections = [];
+      var summaryRows = Object.keys(names).sort().map(function (n) {
+        var x = routeOf[n];
+        var os = orders.filter(function (o) { return o.driver === n; });
+        var veh = {};
+        os.forEach(function (o) { if (o.vehicle) veh[o.vehicle] = 1; });
+        return [n, Object.keys(veh).join(', '), x.drops, os.reduce(function (s, o) { return s + o.parcels; }, 0), x.miles, x.fees, x.extras, m(x.dropBonus + x.adjustment), x.adjustmentRemark, x.total];
       });
-      var m = P.money;
-      var driverRows = Object.keys(drivers).sort().map(function (name) {
-        var o = drivers[name];
-        return [name, o.routes, o.drops, m(o.miles), m(o.fees), m(o.extras), m(o.bonus), m(o.adj), o.remarks.join('; '), m(o.total)];
+      var sum = function (i) { return m(summaryRows.reduce(function (s, x) { return s + (Number(x[i]) || 0); }, 0)); };
+      var total = sum(9);
+      sections.push({
+        title: 'DRIVER PAYMENT SUMMARY',
+        header: ['Driver', 'Vehicle', 'Orders', 'Parcels', 'Miles', 'Delivery fees £', 'Extra charges £', 'Route adj. £', 'Route remark', 'Final payable £'],
+        rows: summaryRows, totals: ['TOTAL', '', sum(2), sum(3), sum(4), sum(5), sum(6), sum(7), '', total], money: [5, 6, 7, 9]
       });
-      var sum = function (rows, i) { return m(rows.reduce(function (s, x) { return s + (Number(x[i]) || 0); }, 0)); };
-      var routeRows = routes.map(function (x) {
-        return [tabLabel(x.date), x.driver, x.drops, x.miles, x.fees, x.extras, x.dropBonus, x.adjustment, x.adjustmentRemark, x.total];
+      Object.keys(names).sort().forEach(function (n) {
+        var os = orders.filter(function (o) { return o.driver === n; });
+        var x = routeOf[n];
+        sections.push({
+          driverHeading: n + '  ·  ' + os.length + ' orders  ·  pay ' + gbp(x.total),
+          title: 'Pickup details',
+          header: ['Order ID(s)', 'Merchant', 'Pickup address', 'Parcels to collect', 'Pickup slot'],
+          rows: pickupGroups(os).map(function (p) { return [p.ids.join(', '), p.merchant, p.address, p.parcels, fmtSlot(p.slot)]; })
+        });
+        sections.push({
+          title: 'Delivery details',
+          header: ['#', 'Order ID', 'Customer', 'Address', 'Phone', 'Delivery slot', 'Parcels', 'Instructions'],
+          rows: deliveryOrder(os).map(function (o, i) { return [i + 1, o.id, o.customer, o.address, o.phone ? "'" + o.phone : '', fmtSlot(o.deliverySlot), o.parcels, o.instructions]; })
+        });
       });
-      var sorted = dels.slice().sort(function (a, b) {
-        if (!a.driver !== !b.driver) return a.driver ? -1 : 1; // unassigned last
+      var calcRows = orders.slice().sort(function (a, b) {
+        if (!a.driver !== !b.driver) return a.driver ? -1 : 1;
         return (a.driver || '').localeCompare(b.driver || '') || String(a.id).localeCompare(String(b.id));
+      }).map(function (o) {
+        var p = o.pricing;
+        return [o.driver || '(unassigned)', o.id, o.merchant, o.distance == null ? '' : o.distance, p.ok ? p.bandedMiles : '',
+          o.fee == null ? '' : o.fee, o.extra || 0, o.remark, o.dropTotal == null ? '' : o.dropTotal, p.breakdown];
       });
-      var delRows = sorted.map(function (d) {
-        var p = d.pricing;
-        return [
-          tabLabel(d.date), d.driver || '(unassigned)', d.id, d.merchant, d.customer, d.pickup, d.dropoff, d.route,
-          d.distance == null ? '' : d.distance, SRC_LABEL[d.distanceSource] || '',
-          p.ok ? p.bandedMiles : '', p.ok ? settings.pricing.base : '', p.ok ? p.mileage : '', p.ok ? p.card : '',
-          p.ok ? (p.atFloor ? 'Yes' : 'No') : '', d.fee == null ? '' : d.fee, d.extra || 0, d.remark, d.dropTotal == null ? '' : d.dropTotal,
-          p.breakdown
-        ];
+      sections.push({
+        title: 'PAYMENT CALCULATION (per order)',
+        header: ['Driver', 'Order ID', 'Merchant', 'Distance (mi)', 'Charged band (mi)', 'Delivery fee £', 'Extra £', 'Remark', 'Order total £', 'Calculation'],
+        rows: calcRows, money: [5, 6, 8]
       });
-      var total = sum(driverRows, 9);
       return {
-        tabName: tabLabel(date),
-        count: dels.length,
-        total: gbp(total),
+        tabName: tabLabel(date), count: orders.length, total: gbp(total),
         body: {
-          meta: {
-            formula: formula,
-            generatedAt: new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }),
-            sourceFile: S.fileName,
-            totalPayable: total
-          },
-          drivers: {
-            header: ['Driver', 'Routes', 'Drops', 'Miles', 'Delivery fees £', 'Extra charges £', 'Multi-drop £', 'Route adjustments £', 'Remarks', 'Final payable £'],
-            rows: driverRows,
-            totals: ['TOTAL', sum(driverRows, 1), sum(driverRows, 2), sum(driverRows, 3), sum(driverRows, 4), sum(driverRows, 5), sum(driverRows, 6), sum(driverRows, 7), '', total],
-            money: [4, 5, 6, 7, 9]
-          },
-          routes: {
-            header: ['Date', 'Driver', 'Drops', 'Miles', 'Delivery fees £', 'Extra charges £', 'Multi-drop £', 'Adjustment £', 'Adjustment remark', 'Route total £'],
-            rows: routeRows,
-            totals: ['TOTAL', '', sum(routeRows, 2), sum(routeRows, 3), sum(routeRows, 4), sum(routeRows, 5), sum(routeRows, 6), sum(routeRows, 7), '', sum(routeRows, 9)],
-            money: [4, 5, 6, 7, 9]
-          },
-          deliveries: {
-            header: ['Date', 'Driver', 'Order ID', 'Merchant', 'Customer', 'Pickup', 'Drop-off', 'Route', 'Distance (mi)', 'Distance source',
-              'Charged band (mi)', 'Base £', 'Mileage £', 'Card £', 'Minimum applied', 'Delivery fee £', 'Extra charge £', 'Remark', 'Drop total £', 'Calculation'],
-            rows: delRows,
-            money: [11, 12, 13, 15, 16, 18]
-          }
+          meta: { formula: P.describe(settings.pricing), generatedAt: new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }), sourceFile: S.fileName, totalPayable: total },
+          sections: sections
         }
       };
     });
   }
 
-  // ---------- upload + offline queue ----------
   function api(body) {
     return fetch(settings.scriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ token: settings.token }, body)),
-      redirect: 'follow'
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ token: settings.token }, body)), redirect: 'follow'
     }).then(function (r) {
       return r.text().then(function (t) {
         try { return JSON.parse(t); } catch (e) {
-          var err = new Error('Unexpected response from Apps Script — check the Web App URL and that access is set to "Anyone".');
-          err.fatal = true;
-          throw err;
+          var err = new Error('Unexpected reply from Apps Script. Check the Web App URL and that access is "Anyone".');
+          err.fatal = true; throw err;
         }
       });
     });
@@ -809,27 +659,23 @@
 
   function startUpload() {
     recalc();
-    if (!result.deliveries.length) { toast('Nothing to upload yet — load a CSV first.', 'bad'); return; }
-    if (result.unpriced && !confirm(result.unpriced + ' deliveries have no distance and will show no fee. Upload anyway?')) return;
-    if (result.unassigned && !confirm(result.unassigned + ' deliveries have no driver and won\'t appear in any route total. Upload anyway?')) return;
+    if (!result.orders.length) { toast('Nothing to upload yet.', 'bad'); return; }
+    var nodist = result.orders.filter(function (o) { return o.distance == null; }).length;
+    if (nodist && !confirm(nodist + ' orders have no miles, so no fee. Upload anyway?')) return;
+    if (result.unassigned.length && !confirm(result.unassigned.length + ' orders have no driver. Upload anyway?')) return;
     var payloads = buildPayloads();
     payloads.forEach(function (p) {
-      // Replace an older pending upload of the same tab so the latest numbers win.
       queue = queue.filter(function (q) { return q.tabName !== p.tabName; });
-      queue.push({ id: String(Date.now()) + Math.random().toString(36).slice(2, 6), tabName: p.tabName, count: p.count, total: p.total, body: p.body, createdAt: Date.now(), mode: null });
+      queue.push({ id: Date.now() + Math.random().toString(36).slice(2, 6), tabName: p.tabName, count: p.count, total: p.total, body: p.body, createdAt: Date.now(), mode: null });
     });
     save(LS.queue, queue);
     renderQueuePill();
     if (!settings.scriptUrl || !settings.token) {
-      toast('Saved to the upload queue. Add your Apps Script URL &amp; token in Settings to send it.', '', 8000);
+      toast('Saved. Connect Google Sheets in Settings to send it.', '', 7000);
       openSettings();
       return;
     }
-    if (!navigator.onLine) {
-      toast('You\'re offline — ' + payloads.length + ' upload' + (payloads.length > 1 ? 's' : '') + ' queued. It will sync automatically when you\'re back online.', '', 8000);
-      if (view.tab === 'sheets') renderSheets();
-      return;
-    }
+    if (!navigator.onLine) { toast('You\'re offline. The upload is queued and will send automatically when you\'re back online.', '', 7000); return; }
     processQueue();
   }
 
@@ -837,304 +683,201 @@
   function processQueue() {
     if (syncing || !queue.length || !settings.scriptUrl || !settings.token || !navigator.onLine) return Promise.resolve();
     syncing = true;
-    var items = queue.slice();
-    return items.reduce(function (pr, item) {
+    return queue.slice().reduce(function (pr, item) {
       return pr.then(function (stop) {
         if (stop) return true;
         return syncItem(item).then(function () { return false; }, function (e) {
-          if (e && e.fatal) {
-            item.error = e.message;
-            save(LS.queue, queue);
-            toast(esc(e.message), 'bad', 9000);
-          } else {
-            toast('Couldn\'t reach Google — upload kept in the queue and will retry automatically.', '', 7000);
-          }
+          if (e && e.fatal) { item.error = e.message; save(LS.queue, queue); toast(esc(e.message), 'bad', 9000); }
+          else toast('Couldn\'t reach Google. The upload is still queued and will retry automatically.', '', 6000);
           return true;
         });
       });
-    }, Promise.resolve(false)).finally(function () {
-      syncing = false;
-      renderQueuePill();
-      if (view.tab === 'sheets') renderSheets();
-    });
+    }, Promise.resolve(false)).finally(function () { syncing = false; renderQueuePill(); if ($('#dlgUploads').open) renderUploads(); });
   }
-
   function syncItem(item) {
-    var chooseMode = item.mode
-      ? Promise.resolve(item.mode)
-      : api({ action: 'check', tabName: item.tabName }).then(function (c) {
-        if (!c.ok) { var e = new Error(c.error || 'Check failed'); e.fatal = true; throw e; }
-        return c.exists ? askConflict(item.tabName, c.url, c.nextVersionName) : 'create';
-      });
-    return chooseMode.then(function (mode) {
-      if (mode === 'cancel') { dequeue(item.id); toast('Upload of ' + esc(item.tabName) + ' cancelled.'); return; }
-      item.mode = mode;
+    var mode = item.mode ? Promise.resolve(item.mode) : api({ action: 'check', tabName: item.tabName }).then(function (c) {
+      if (!c.ok) { var e = new Error(c.error || 'Check failed'); e.fatal = true; throw e; }
+      return c.exists ? askConflict(item.tabName, c.url, c.nextVersionName) : 'create';
+    });
+    return mode.then(function (md) {
+      if (md === 'cancel') { dequeue(item.id); toast('Upload of ' + esc(item.tabName) + ' cancelled.'); return; }
+      item.mode = md;
       save(LS.queue, queue);
-      return api(Object.assign({ action: 'upload', tabName: item.tabName, mode: mode }, item.body)).then(function (res) {
+      return api(Object.assign({ action: 'upload', tabName: item.tabName, mode: md }, item.body)).then(function (res) {
         if (res.conflict) { item.mode = null; return syncItem(item); }
         if (!res.ok) { var e = new Error(res.error || 'Upload failed'); e.fatal = true; throw e; }
         dequeue(item.id);
-        history.unshift({ tabName: res.tabName, url: res.url, mode: mode === 'update' ? 'Updated' : (mode === 'version' ? 'New version' : 'Created'), count: item.count, total: item.total, at: Date.now() });
-        history = history.slice(0, 200);
-        save(LS.history, history);
-        toast('✓ Uploaded <b>' + esc(res.tabName) + '</b> (' + item.count + ' deliveries, ' + esc(item.total) + '). <a href="' + esc(res.url) + '" target="_blank" rel="noopener">Open tab ↗</a>', 'ok', 15000);
+        uploadHistory.unshift({ tabName: res.tabName, url: res.url, mode: md === 'update' ? 'Updated' : (md === 'version' ? 'New version' : 'Created'), count: item.count, total: item.total, at: Date.now() });
+        uploadHistory = uploadHistory.slice(0, 100);
+        save(LS.history, uploadHistory);
+        toast('✓ Uploaded <b>' + esc(res.tabName) + '</b> (' + item.count + ' orders, ' + esc(item.total) + '). <a href="' + esc(res.url) + '" target="_blank" rel="noopener">Open tab ↗</a>', 'ok', 15000);
       });
     });
   }
-
-  function dequeue(id) {
-    queue = queue.filter(function (q) { return q.id !== id; });
-    save(LS.queue, queue);
-  }
-
+  function dequeue(id) { queue = queue.filter(function (q) { return q.id !== id; }); save(LS.queue, queue); }
   function askConflict(name, url, next) {
     return new Promise(function (resolve) {
       var dlg = $('#dlgConflict');
       $('#cfName').textContent = name;
       $('#cfNext').textContent = '“' + next + '”';
       var link = $('#cfLink');
-      if (url) { link.href = url; link.classList.remove('hidden'); } else link.classList.add('hidden');
-      var done = function (choice) {
+      link.classList.toggle('hidden', !url);
+      if (url) link.href = url;
+      var done = function (c) {
         $$('#dlgConflict [data-choice]').forEach(function (b) { b.onclick = null; });
         dlg.onclose = null;
         if (dlg.open) dlg.close();
-        resolve(choice);
+        resolve(c);
       };
-      $$('#dlgConflict [data-choice]').forEach(function (b) {
-        b.onclick = function () { done(b.dataset.choice); };
-      });
+      $$('#dlgConflict [data-choice]').forEach(function (b) { b.onclick = function () { done(b.dataset.choice); }; });
       dlg.onclose = function () { done('cancel'); };
       dlg.showModal();
     });
   }
+  function renderUploads() {
+    var ok = settings.scriptUrl && settings.token;
+    var h = ok ? '' : '<div class="notice warn" style="margin:0">Google Sheets isn\'t connected yet. Open <b>Settings</b>, or use the connect link from the Apps Script setup.</div>';
+    h += '<h4>Waiting to upload</h4>' + (queue.length ? queue.map(function (q) {
+      return '<div class="row"><b>' + esc(q.tabName) + '</b><span class="muted small">' + q.count + ' orders · ' + esc(q.error ? 'Error: ' + q.error : (navigator.onLine ? 'ready' : 'offline')) + '</span><span class="spacer"></span><button class="btn quiet" data-dequeue="' + esc(q.id) + '" type="button">Remove</button></div>';
+    }).join('') : '<span class="muted small">Nothing waiting.</span>');
+    h += '<h4>Recent uploads</h4>' + (uploadHistory.length ? uploadHistory.slice(0, 15).map(function (x) {
+      return '<div class="row small"><b>' + esc(x.tabName) + '</b><span class="muted">' + esc(x.mode) + ' · ' + x.count + ' orders · ' + esc(x.total || '') + ' · ' + esc(new Date(x.at).toLocaleString('en-GB')) + '</span><span class="spacer"></span>' + (x.url ? '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Open ↗</a>' : '') + '</div>';
+    }).join('') : '<span class="muted small">No uploads yet.</span>');
+    $('#uploadsContent').innerHTML = h;
+  }
 
   // ---------- settings ----------
   function openSettings() {
-    $('#sUrl').value = settings.scriptUrl;
-    $('#sToken').value = settings.token;
-    $('#sBase').value = settings.pricing.base;
-    $('#sPerMile').value = settings.pricing.perMile;
-    $('#sFloor').value = settings.pricing.floor;
-    $('#sBand').value = settings.pricing.bandMiles;
-    $('#sDrop').value = settings.pricing.extraDropFee;
-    $('#sRoad').checked = !!settings.roadDistance;
-    $('#sFactor').value = settings.straightFactor;
-    $('#sTheme').value = settings.theme || '';
-    $('#sUnlock').checked = false;
-    lockPricing(true);
+    $('#sUrl').value = settings.scriptUrl; $('#sToken').value = settings.token;
+    $('#sBase').value = settings.pricing.base; $('#sPerMile').value = settings.pricing.perMile; $('#sFloor').value = settings.pricing.floor;
+    $('#sBand').value = settings.pricing.bandMiles; $('#sDrop').value = settings.pricing.extraDropFee;
+    $('#sRoad').checked = !!settings.roadDistance; $('#sTheme').value = settings.theme || '';
+    $('#formulaText').textContent = P.describe(settings.pricing);
+    $('#sUnlock').checked = false; lockPricing(true);
     $('#testResult').textContent = '';
     $('#dlgSettings').showModal();
   }
-  function lockPricing(lock) { $$('#pricingFields input').forEach(function (i) { i.disabled = lock; }); }
-  function readSettingsForm() {
+  function lockPricing(l) { $$('#pricingFields input').forEach(function (i) { i.disabled = l; }); }
+  function readSettings() {
     var num = function (id, d) { var v = parseFloat($(id).value); return isNaN(v) ? d : v; };
-    settings.scriptUrl = $('#sUrl').value.trim();
-    settings.token = $('#sToken').value.trim();
-    settings.pricing = {
-      base: num('#sBase', P.DEFAULT_CONFIG.base),
-      perMile: num('#sPerMile', P.DEFAULT_CONFIG.perMile),
-      floor: num('#sFloor', P.DEFAULT_CONFIG.floor),
-      bandMiles: num('#sBand', P.DEFAULT_CONFIG.bandMiles),
-      extraDropFee: num('#sDrop', 0)
-    };
-    settings.roadDistance = $('#sRoad').checked;
-    settings.straightFactor = num('#sFactor', 1);
-    settings.theme = $('#sTheme').value;
+    var D = P.DEFAULT_CONFIG;
+    settings.scriptUrl = $('#sUrl').value.trim(); settings.token = $('#sToken').value.trim();
+    settings.pricing = { base: num('#sBase', D.base), perMile: num('#sPerMile', D.perMile), floor: num('#sFloor', D.floor), bandMiles: num('#sBand', D.bandMiles), extraDropFee: num('#sDrop', 0) };
+    settings.roadDistance = $('#sRoad').checked; settings.theme = $('#sTheme').value;
   }
   function applyTheme() {
     if (settings.theme) document.documentElement.setAttribute('data-theme', settings.theme);
     else document.documentElement.removeAttribute('data-theme');
   }
-
-  // ---------- events ----------
-  function selectTab(tab) {
-    view.tab = tab;
-    $$('nav.steps button').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
-    $$('section.panel').forEach(function (s) { s.classList.toggle('active', s.id === 'panel-' + tab); });
-    renderAll();
-    window.scrollTo(0, 0);
+  // One-click connect: #connect=<base64url {"u": webAppUrl, "t": token}> (generated by setup() in Code.gs).
+  function consumeConnectLink() {
+    var m = /[#&]connect=([A-Za-z0-9_\-=]+)/.exec(location.hash);
+    if (!m) return;
+    try {
+      var cfg = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (cfg.u && cfg.t) {
+        settings.scriptUrl = cfg.u; settings.token = cfg.t;
+        save(LS.settings, settings);
+        setTimeout(function () { toast('✓ Connected to Google Sheets. Bookmark this page.', 'ok', 6000); }, 50);
+      }
+    } catch (e) { toast('That connect link is invalid. Paste the URL and token in Settings instead.', 'bad'); }
+    if (window.history && window.history.replaceState) window.history.replaceState(null, '', location.pathname + location.search);
   }
 
-  function findDelivery(key) { return S.deliveries.filter(function (d) { return d.key === key; })[0]; }
+  // ---------- printing ----------
+  function printDriver(name) {
+    $$('#drivers .driver').forEach(function (c) { c.classList.toggle('print-target', c.dataset.driver === name); });
+    document.body.classList.toggle('print-one', !!name);
+    window.print();
+  }
+  window.addEventListener('afterprint', function () { document.body.classList.remove('print-one'); });
 
+  // ---------- events ----------
   function bind() {
-    $$('nav.steps button').forEach(function (b) { b.addEventListener('click', function () { selectTab(b.dataset.tab); }); });
-
     var dz = $('#dropZone'), fi = $('#fileInput');
     dz.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fi.click(); } });
     ['dragenter', 'dragover'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('over'); }); });
     ['dragleave', 'drop'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('over'); }); });
-    dz.addEventListener('drop', function (e) { var f = e.dataTransfer.files[0]; if (f) readFile(f); });
+    dz.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); });
     fi.addEventListener('change', function () { if (fi.files[0]) readFile(fi.files[0]); fi.value = ''; });
-
-    $('#btnSample').addEventListener('click', function () {
-      if (window.DODO_SAMPLE_CSV) loadText(window.DODO_SAMPLE_CSV, 'validation-sample.csv');
+    $('#btnReplace').addEventListener('click', function () { fi.click(); });
+    $('#btnClear').addEventListener('click', function () {
+      if (!confirm('Clear this file and any extras/remarks you added?')) return;
+      S = emptySession(); save(LS.session, S); render();
     });
-    $('#btnReset').addEventListener('click', function () {
-      if (!confirm('Clear the loaded file, driver assignments, extras and remarks? (Settings, queue and history are kept.)')) return;
-      S = { fileName: '', headers: [], rows: [], mapping: {}, carrier: '', date: '', dateOverride: '', statuses: null, deliveries: [], routeAdj: {}, applied: false };
-      view.selected = {};
-      save(LS.session, S);
-      renderUpload();
-      renderAll();
-    });
+    $('#btnSample').addEventListener('click', function () { loadText(window.DODO_SAMPLE_CSV, 'sample-orders.csv'); });
+    $('#btnTemplate').addEventListener('click', function () { download('dodo-routes-template.csv', window.DODO_TEMPLATE_CSV); });
 
     $('#mappingGrid').addEventListener('change', function (e) {
       var k = e.target.getAttribute('data-map');
       if (!k) return;
       S.mapping[k] = e.target.value;
-      if (k === 'carrier' || k === 'status' || k === 'date') initFilters();
-      persistSession();
-      renderFilters();
+      if (k === 'date' || k === 'deliverySlot' || k === 'carrier' || k === 'status') initDate();
+      persist(); render(); lookupDistances();
     });
-    $('#fCarrier').addEventListener('change', function (e) { S.carrier = e.target.value; persistSession(); renderFilters(); });
-    $('#fDate').addEventListener('change', function (e) { S.date = e.target.value; persistSession(); renderFilters(); });
-    $('#fDateOverride').addEventListener('change', function (e) { S.dateOverride = e.target.value; persistSession(); renderFilters(); });
-    $('#fStatuses').addEventListener('change', function (e) {
-      var s = e.target.getAttribute('data-status');
-      if (s == null) return;
-      S.statuses = S.statuses || distinct('status');
-      if (e.target.checked) { if (S.statuses.indexOf(s) < 0) S.statuses.push(s); }
-      else S.statuses = S.statuses.filter(function (x) { return x !== s; });
-      persistSession();
-      renderFilters();
-    });
-    $('#btnApply').addEventListener('click', function () {
-      if (!S.mapping.orderId) { toast('Choose the Order ID column first.', 'bad'); return; }
-      applyMapping();
-      selectTab('deliveries');
-      calculateDistances(false);
+    $('#fDate').addEventListener('change', function (e) { S.date = e.target.value; persist(); render(); });
+    $('#fDateOverride').addEventListener('change', function (e) { S.dateOverride = e.target.value; persist(); render(); });
+
+    $('#chips').addEventListener('click', function (e) {
+      var b = e.target.closest('.chip');
+      if (!b) return;
+      view.driver = b.dataset.driver;
+      render();
     });
 
-    // Deliveries table (delegated)
-    var tbody = $('#delTable tbody');
-    tbody.addEventListener('click', function (e) {
-      if (!e.target.classList.contains('sel')) return;
-      var tr = e.target.closest('tr');
-      var key = tr.dataset.key;
-      var on = e.target.checked;
-      if (e.shiftKey && view.lastClicked) {
-        var keys = $$('#delTable tbody tr[data-key]').map(function (r) { return r.dataset.key; });
-        var a = keys.indexOf(view.lastClicked), b = keys.indexOf(key);
-        if (a >= 0 && b >= 0) keys.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function (k) { view.selected[k] = on; });
-      }
-      view.selected[key] = on;
-      view.lastClicked = key;
-      renderDeliveries();
-    });
-    tbody.addEventListener('change', function (e) {
-      var tr = e.target.closest('tr');
-      if (!tr) return;
-      var d = findDelivery(tr.dataset.key);
-      if (!d) return;
+    $('#drivers').addEventListener('change', function (e) {
       var t = e.target;
-      if (t.classList.contains('dist')) {
-        var v = t.value.trim();
-        d.distance = v === '' ? null : Math.max(0, Number(v));
-        d.distanceSource = v === '' ? 'missing' : 'manual';
-      } else if (t.classList.contains('driver')) {
-        d.driver = canonicalDriver(t.value);
-        addToRoster(d.driver);
-      } else if (t.classList.contains('extra')) {
-        d.extra = t.value === '' ? '' : Number(t.value);
-      } else if (t.classList.contains('remark')) {
-        d.remark = t.value;
+      if (t.dataset.route) {
+        var a = S.routeAdj[t.dataset.route] = S.routeAdj[t.dataset.route] || {};
+        if (t.classList.contains('radj')) a.amount = t.value === '' ? '' : Number(t.value);
+        else a.remark = t.value;
+        persist(); render(); return;
+      }
+      var tr = t.closest('tr[data-key]');
+      if (!tr) return;
+      var key = tr.dataset.key;
+      if (t.classList.contains('dist')) setEdit(key, 'distance', t.value === '' ? null : Math.max(0, Number(t.value)));
+      else if (t.classList.contains('extra')) setEdit(key, 'extra', t.value === '' ? '' : Number(t.value));
+      else if (t.classList.contains('remark')) setEdit(key, 'remark', t.value);
+      else if (t.classList.contains('drv')) {
+        var name = t.value.trim().replace(/\s+/g, ' ');
+        var match = result.drivers.filter(function (d) { return d.name.toLowerCase() === name.toLowerCase(); })[0];
+        setEdit(key, 'driver', match ? match.name : name);
       } else return;
-      persistSession();
-      renderAll();
+      render();
     });
-    $('#selAll').addEventListener('change', function (e) {
-      result.deliveries.filter(matchesView).forEach(function (d) { view.selected[d.key] = e.target.checked; });
-      renderDeliveries();
-    });
-    $('#viewFilter').addEventListener('click', function (e) {
-      var f = e.target.dataset && e.target.dataset.f;
-      if (!f) return;
-      view.filter = f;
-      renderDeliveries();
-    });
-    $('#search').addEventListener('input', function (e) {
-      view.search = e.target.value.trim();
-      debounce('search', renderDeliveries, 150);
-    });
-    $('#btnAssign').addEventListener('click', function () {
-      var name = canonicalDriver($('#bulkDriver').value);
-      if (!name) { toast('Type or pick a driver name first.', 'bad'); return; }
-      var n = 0;
-      S.deliveries.forEach(function (d) { if (view.selected[d.key]) { d.driver = name; n++; } });
-      if (!n) { toast('Select some deliveries first (tick the boxes).', 'bad'); return; }
-      addToRoster(name);
-      view.selected = {};
-      persistSession();
-      renderAll();
-      toast('Assigned ' + n + ' deliveries to <b>' + esc(name) + '</b>.', 'ok', 3000);
-    });
-    $('#btnUnassign').addEventListener('click', function () {
-      S.deliveries.forEach(function (d) { if (view.selected[d.key]) d.driver = ''; });
-      view.selected = {};
-      persistSession();
-      renderAll();
-    });
-    $('#btnDistances').addEventListener('click', function () {
-      var force = S.deliveries.some(function (d) { return d.distanceSource === 'straight'; }) &&
-        confirm('Re-check estimated (straight-line) distances too?');
-      if (force) S.deliveries.forEach(function (d) { if (d.distanceSource === 'straight') { delete distCache[pairKey(d.pickup, d.dropoff)]; d.distance = null; d.distanceSource = 'missing'; } });
-      calculateDistances(force);
+    $('#drivers').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-print]');
+      if (b) printDriver(b.dataset.print);
     });
 
-    // Routes
-    $('#routeList').addEventListener('change', function (e) {
-      var k = e.target.dataset.key;
-      if (!k) return;
-      var adj = S.routeAdj[k] = S.routeAdj[k] || {};
-      if (e.target.classList.contains('radj')) adj.amount = e.target.value === '' ? '' : Number(e.target.value);
-      if (e.target.classList.contains('rremark')) adj.remark = e.target.value;
-      persistSession();
-      renderAll();
-    });
-    $('#btnCsvSummary').addEventListener('click', function () {
-      var r = recalc();
-      var rows = [['Driver', 'Date', 'Drops', 'Miles', 'Delivery fees', 'Extra charges', 'Multi-drop', 'Adjustment', 'Remark', 'Route total']];
-      r.routes.forEach(function (x) { rows.push([x.driver, tabLabel(x.date), x.drops, x.miles, x.fees, x.extras, x.dropBonus, x.adjustment, x.adjustmentRemark, x.total]); });
-      rows.push([]);
-      rows.push(['Driver', 'Routes', 'Drops', 'Miles', 'Delivery fees', 'Extra charges', 'Multi-drop', 'Adjustments', 'Remarks', 'Final payable']);
-      r.drivers.forEach(function (x) { rows.push([x.driver, x.routes, x.drops, x.miles, x.fees, x.extras, x.dropBonus, x.adjustment, x.adjustmentRemark, x.payable]); });
-      rows.push(['TOTAL', '', r.totals.drops, '', r.totals.fees, r.totals.extras, r.totals.dropBonus, r.totals.adjustments, '', r.totals.payable]);
-      download('dodo-driver-pay-summary.csv', toCSV(rows));
-    });
-    $('#btnCsvDeliveries').addEventListener('click', function () {
-      var rows = [];
-      buildPayloads().forEach(function (p, i) {
-        if (i === 0) rows.push(p.body.deliveries.header);
-        p.body.deliveries.rows.forEach(function (r) { rows.push(r); });
-      });
-      download('dodo-driver-pay-deliveries.csv', toCSV(rows));
-    });
-
-    // Upload
     $('#btnUpload').addEventListener('click', startUpload);
-    $('#btnUpload2').addEventListener('click', startUpload);
+    $('#btnPrintAll').addEventListener('click', function () { printDriver(view.driver && view.driver !== '__unassigned' ? view.driver : ''); });
+    $('#btnCsv').addEventListener('click', function () {
+      var rows = [['Date', 'Driver', 'Vehicle', 'Order ID', 'Merchant', 'Pickup address', 'Pickup slot', 'Customer', 'Customer phone', 'Customer address', 'Delivery slot', 'Parcels', 'Instructions', 'Distance (mi)', 'Fee £', 'Extra £', 'Remark', 'Order total £', 'Calculation']];
+      recalc().orders.forEach(function (o) {
+        rows.push([tabLabel(o.date), o.driver, o.vehicle, o.id, o.merchant, o.pickupAddress, fmtSlot(o.pickupSlot), o.customer, o.phone, o.address, fmtSlot(o.deliverySlot), o.parcels, o.instructions, o.distance == null ? '' : o.distance, o.fee == null ? '' : o.fee, o.extra || '', o.remark, o.dropTotal == null ? '' : o.dropTotal, o.pricing.breakdown]);
+      });
+      download('dodo-routes-' + tabLabel(S.date || S.dateOverride) + '.csv', toCSV(rows));
+    });
+
+    $('#btnUploads').addEventListener('click', function () { renderUploads(); $('#dlgUploads').showModal(); });
+    $('#queuePill').addEventListener('click', function () { renderUploads(); $('#dlgUploads').showModal(); });
+    $('#btnCloseUploads').addEventListener('click', function () { $('#dlgUploads').close(); });
     $('#btnSyncNow').addEventListener('click', function () {
-      queue.forEach(function (q) { delete q.error; });
-      save(LS.queue, queue);
-      if (!navigator.onLine) toast('Still offline — will sync when the connection returns.');
+      queue.forEach(function (q) { delete q.error; }); save(LS.queue, queue);
+      if (!navigator.onLine) toast('Still offline. It will send when the connection returns.');
       processQueue();
     });
-    $('#queueList').addEventListener('click', function (e) {
+    $('#uploadsContent').addEventListener('click', function (e) {
       var id = e.target.getAttribute('data-dequeue');
-      if (id && confirm('Remove this queued upload?')) { dequeue(id); renderSheets(); renderQueuePill(); }
+      if (id) { dequeue(id); renderUploads(); renderQueuePill(); }
     });
 
-    // Settings
     $('#btnSettings').addEventListener('click', openSettings);
     $('#sUnlock').addEventListener('change', function (e) { lockPricing(!e.target.checked); });
-    $('#btnPricingDefault').addEventListener('click', function () {
-      var d = P.DEFAULT_CONFIG;
-      $('#sBase').value = d.base; $('#sPerMile').value = d.perMile; $('#sFloor').value = d.floor;
-      $('#sBand').value = d.bandMiles; $('#sDrop').value = d.extraDropFee;
-    });
     $('#btnTest').addEventListener('click', function () {
-      readSettingsForm();
+      readSettings();
       var out = $('#testResult');
       if (!settings.scriptUrl) { out.textContent = 'Enter the Web App URL.'; return; }
       out.textContent = 'Testing…';
@@ -1144,49 +887,15 @@
     });
     $('#dlgSettings').addEventListener('close', function () {
       if ($('#dlgSettings').returnValue !== 'save') return;
-      readSettingsForm();
-      save(LS.settings, settings);
-      applyTheme();
-      renderAll();
-      processQueue();
-      toast('Settings saved.', 'ok', 2500);
+      readSettings(); save(LS.settings, settings); applyTheme(); render(); processQueue();
+      toast('Settings saved.', 'ok', 2000);
     });
 
-    // Connectivity
-    window.addEventListener('online', function () { renderNet(); processQueue(); if (view.tab === 'sheets') renderSheets(); });
-    window.addEventListener('offline', function () { renderNet(); if (view.tab === 'sheets') renderSheets(); });
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden) save(LS.session, S); else processQueue();
-    });
+    window.addEventListener('online', function () { renderNet(); processQueue(); lookupDistances(); });
+    window.addEventListener('offline', renderNet);
+    document.addEventListener('visibilitychange', function () { if (document.hidden) save(LS.session, S); else processQueue(); });
     window.addEventListener('pagehide', function () { save(LS.session, S); });
     setInterval(processQueue, 60000);
-  }
-
-  function readFile(file) {
-    var r = new FileReader();
-    r.onload = function () { loadText(String(r.result), file.name); };
-    r.onerror = function () { toast('Could not read that file.', 'bad'); };
-    r.readAsText(file);
-  }
-
-  // One-click connect: #connect=<base64url {"u": webAppUrl, "t": token}> (generated by setup() in Code.gs).
-  function consumeConnectLink() {
-    var m = /[#&]connect=([A-Za-z0-9_\-=]+)/.exec(location.hash);
-    if (!m) return;
-    try {
-      var b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
-      var cfg = JSON.parse(atob(b64));
-      if (cfg.u && cfg.t) {
-        settings.scriptUrl = cfg.u;
-        settings.token = cfg.t;
-        save(LS.settings, settings);
-        toast('✓ Connected to Google Sheets. You can bookmark this page.', 'ok', 6000);
-      }
-    } catch (e) {
-      toast('That connect link is invalid — paste the URL and token in Settings instead.', 'bad');
-    }
-    if (window.history && window.history.replaceState) window.history.replaceState(null, '', location.pathname + location.search);
-    else location.hash = '';
   }
 
   // ---------- boot ----------
@@ -1194,12 +903,8 @@
   applyTheme();
   bind();
   renderNet();
-  renderUpload();
-  renderAll();
-  if (S.applied && S.deliveries.length) selectTab('deliveries');
+  render();
   processQueue();
-
-  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
-  }
+  lookupDistances();
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(function () {});
 })();
