@@ -56,6 +56,8 @@
     { key: 'parcels', label: 'Parcel count', c: ['parcel count', 'parcels', 'num parcels'] },
     { key: 'miles', label: 'Distance miles', c: ['distance miles', 'distance mi', 'distance'] },
     { key: 'instructions', label: 'Delivery instructions', c: ['delivery instructions', 'instructions'] },
+    { key: 'dropoffEnd', label: 'Dropoff end', c: ['dropoff end', 'delivery before', 'delivery deadline'] },
+    { key: 'deliveredAt', label: 'Delivered at', c: ['delivered at', 'delivered time', 'dropoff time'] },
     { key: 'tracking', label: 'DP tracking URL', c: ['dp tracking url', 'tracking url'] }
   ];
 
@@ -243,6 +245,7 @@
           retoolDriver: clean(r.driver), driverMatches: !r.driver || normName(r.driver) === normName(route.agentName),
           parcels: parseNum(r.parcels), instructions: clean(r.instructions), vehicle: clean(r.vehicle),
           pickupSlot: clean(r.pickupSlot), deliverySlot: clean(r.deliverySlot), tracking: clean(r.tracking),
+          price: parseMoney(r.price), dropoffEnd: clean(r.dropoffEnd), deliveredAt: clean(r.deliveredAt),
           miles: miles, dpCost: dpCost, card: card, cardFee: card ? card.fee : null,
           cost: cost, costSource: dpCost != null ? 'retool' : (card ? 'card' : 'none'),
           diff: dpCost != null && card ? P.money(dpCost - card.fee) : null,
@@ -327,7 +330,71 @@
     return { routes: routes, unmatched: unmatched, warnings: warnings, totals: totals, pricing: pricing };
   }
 
+  // ---------- weekly-sheet format (CSV export + Google Sheets) ----------
+  var SHEET_HEADER = ['S. No.', 'Order ID', 'Agent_Name', 'Merchant', 'Customer Name', 'Delivery Before', 'Actual', 'Delivery', 'OTD', 'Price', 'Refund', 'Driver Cost', 'Remarks', 'Weekly', 'Weekly'];
+  var MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  function pad2(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
+  // Wall-clock parts in Europe/London for an ISO timestamp.
+  function london(iso) {
+    var d = new Date(iso);
+    if (!iso || isNaN(d)) return null;
+    var o = {};
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(d).forEach(function (p) { o[p.type] = p.value; });
+    return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour, min: +o.minute };
+  }
+  // Tookan "02 Nov 2026" → {y,m,d}
+  function routeDay(text) {
+    var m = /(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})/.exec(text || '');
+    return m && MON[m[2].toLowerCase()] ? { y: +m[3], m: MON[m[2].toLowerCase()], d: +m[1] } : null;
+  }
+  function usDate(p) { return pad2(p.m) + '/' + pad2(p.d) + '/' + p.y; }
+  function dayNum(p) { return Date.UTC(p.y, p.m - 1, p.d) / 86400000; }
+
+  // Delivery Before: Retool "Dropoff end", else the end of the Retool delivery slot on the route day.
+  function deliveryBefore(o, route) {
+    var p = london(o.dropoffEnd);
+    if (!p) {
+      var day = routeDay(route.date);
+      var t = /(\d{1,2}):(\d{2})\s*$/.exec(o.deliverySlot || '');
+      if (day && t) p = { y: day.y, m: day.m, d: day.d, h: +t[1], min: +t[2] };
+    }
+    return p;
+  }
+
+  function sheetRows(routes) {
+    var rows = [], n = 0;
+    routes.forEach(function (route) {
+      // Orders in the order the driver delivers them (first DELIVERY stop, else the pickup).
+      var seen = {}, list = [];
+      route.stops.filter(function (s) { return s.type === 'DELIVERY'; }).concat(route.stops).forEach(function (s) {
+        if (!seen[s.order.key]) { seen[s.order.key] = 1; list.push(s.order); }
+      });
+      list.forEach(function (o) {
+        var before = deliveryBefore(o, route), done = london(o.deliveredAt);
+        var otd = '';
+        if (done && before) {
+          // Same rule as the weekly sheet: on time when delivered on or before the Delivery Before day.
+          var late = dayNum(done) - dayNum(before);
+          otd = late <= 0 ? 'Yes' : Math.round((dayNum(done) * 1440 + done.h * 60 + done.min) - (dayNum(before) * 1440 + before.h * 60 + before.min)) + ' mins late';
+        }
+        rows.push([
+          ++n, o.ref, route.agentName, o.merchant, o.customer,
+          before ? usDate(before) + ' ' + pad2(before.h) + ':' + pad2(before.min) : '',
+          done ? usDate(done) : '', done ? done.h + ':' + pad2(done.min) : '', otd,
+          o.price == null ? '' : o.price, '', o.total == null ? '' : o.total, o.remark, '', ''
+        ]);
+      });
+      if (route.adjustment) {
+        rows.push([++n, 'ROUTE ' + route.routeId, route.agentName, '', '', '', '', '', '', '', '', route.adjustment,
+          'Route adjustment' + (route.adjustmentRemark ? ': ' + route.adjustmentRemark : ''), '', '']);
+      }
+    });
+    return rows;
+  }
+
   var api = {
+    SHEET_HEADER: SHEET_HEADER, sheetRows: sheetRows,
     TOOKAN_FIELDS: TOOKAN_FIELDS, RETOOL_FIELDS: RETOOL_FIELDS,
     parseCSV: parseCSV, detectKind: detectKind, autoMap: autoMap, toObjects: toObjects, clean: clean, build: build,
     normRef: normRef, normName: normName, fmtPhone: fmtPhone, phoneDigits: phoneDigits,

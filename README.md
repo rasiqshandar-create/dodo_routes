@@ -57,15 +57,30 @@ Plus **Driver pay** (Retool) next to the header.
 - Screen-only extras (left out of the PDF): the *Pay & reconciliation* table (Retool vs card, extra £ and remark per order, route extra/deduction) and the optional *Pickup & delivery summaries*.
 - Phones: the leading apostrophe from Retool/Excel is stripped. UK numbers are shown as `+44 7xxx xxxxxx` / `+44 20 xxxx xxxx` and are tap-to-call. Addresses keep their postcodes.
 
-## Google Sheets
+## CSV export and Google Sheets (weekly-sheet format)
 
-**Upload to Google Sheets** creates one tab per date (e.g. `02-Nov-2026`) containing:
-1. **Route & driver pay summary**: Route ID, driver, stops, orders, parcels, est. time/distance, Retool DP cost, card, difference, extras, final payable.
-2. **Each route's sequence**, exactly as on the PDF.
-3. **Pay reconciliation** per order.
-4. **Checks for Ops**: unmatched orders and other warnings.
+**Download CSV** and **Upload to Google Sheets** both produce exactly the columns of the *Dodo Deliveries Data* weekly sheets, with one row per order and the header in row 1:
 
-If the tab exists you choose **Update** or **New version**. Offline uploads queue and sync automatically.
+| S. No. | Order ID | Agent_Name | Merchant | Customer Name | Delivery Before | Actual | Delivery | OTD | Price | Refund | Driver Cost | Remarks | Weekly | Weekly |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+
+| Column | Filled from |
+|---|---|
+| S. No. | 1…N, routes in Tookan order, orders in delivery sequence |
+| Order ID | Tookan Order ID (= Retool Order ref). Stored as text in Sheets so leading zeros stay |
+| Agent_Name | Tookan Agent Name |
+| Merchant, Customer Name | Retool |
+| Delivery Before | Retool *Dropoff end* (London time, `MM/DD/YYYY HH:mm`). Falls back to the end of the delivery slot |
+| Actual / Delivery | Retool *Delivered at*: date `MM/DD/YYYY` / time `H:mm`. Blank if not delivered yet |
+| OTD | `Yes` when delivered on or before the Delivery Before day (same rule as the weekly sheet). Otherwise `N mins late` |
+| Price | Retool *Platform price* (**export/Sheets only, never on the driver PDF or route sheet**) |
+| Refund, Weekly, Weekly | left blank |
+| Driver Cost | order pay = Retool DP cost (card only as fallback) + any extra £ |
+| Remarks | the per-order remark |
+
+A route extra/deduction is added as its own row (`Order ID` = `ROUTE <id>`, Driver Cost = the amount, Remarks = the reason).
+
+The upload creates one tab per delivery date (e.g. `02-Nov-2026`). If the tab exists you choose **Update** or **New version**, and offline uploads queue and sync automatically. Reconciliation details (Retool vs card, unmatched orders) stay in the app's *Checks for Ops* and *Pay & reconciliation* panels.
 
 ## One-time setup (about 5 minutes, two parts)
 

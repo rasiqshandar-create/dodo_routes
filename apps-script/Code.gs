@@ -121,6 +121,7 @@ function upload_(ss, tabName, req) {
 }
 
 function writeReport_(sheet, tabName, req) {
+  if (req.table) return writeTableOnly_(sheet, req.table);
   var meta = req.meta || {};
   // New format: req.sections = [{ title, header, rows, totals, money, driverHeading }]
   var sections = req.sections || [
@@ -155,6 +156,20 @@ function writeReport_(sheet, tabName, req) {
   });
 
   sheet.autoResizeColumns(1, widest);
+}
+
+// Weekly-sheet layout: header in row 1, one row per order, nothing else on the tab.
+function writeTableOnly_(sheet, table) {
+  var header = table.header, rows = table.rows || [], w = header.length;
+  (table.text || []).forEach(function (c) { sheet.getRange(1, c + 1, rows.length + 1, 1).setNumberFormat('@'); });
+  sheet.getRange(1, 1, 1, w).setValues([header]).setFontWeight('bold');
+  if (rows.length) {
+    var padded = rows.map(function (r) { var o = r.slice(0, w); while (o.length < w) o.push(''); return o; });
+    sheet.getRange(2, 1, padded.length, w).setValues(padded);
+    (table.money || []).forEach(function (c) { sheet.getRange(2, c + 1, padded.length, 1).setNumberFormat('0.00'); });
+  }
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, w);
 }
 
 function writeTable_(sheet, row, title, table, widest) {

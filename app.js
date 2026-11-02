@@ -375,59 +375,20 @@
   }
 
   // ---------- Google Sheets ----------
+  // CSV export and Google Sheets use the weekly-sheet format exactly (see M.SHEET_HEADER).
   function buildPayloads() {
     var all = recalc();
-    var m = P.money;
     var byDate = {};
     all.routes.forEach(function (r) { (byDate[r.ymd] = byDate[r.ymd] || []).push(r); });
-    var warns = allWarnings();
     return Object.keys(byDate).sort().map(function (ymd) {
       var routes = byDate[ymd];
-      var ids = routes.map(function (r) { return r.routeId; });
-      var sum = function (rows, i) { return m(rows.reduce(function (s, x) { return s + (Number(x[i]) || 0); }, 0)); };
-      var summary = routes.map(function (r) {
-        return [r.routeId, r.agentId, r.agentName, r.stops.length, r.orderCount, r.parcels, r.estTimeText, r.estDistText,
-          r.cost, r.cardTotal, m(r.cost - r.cardTotal), r.extras, r.adjustment, r.adjustmentRemark, r.payable];
-      });
-      var total = sum(summary, 14);
-      var sections = [{
-        title: 'ROUTE & DRIVER PAY SUMMARY (pay = Retool DP cost)',
-        header: ['Route ID', 'Driver ID', 'Driver', 'Stops', 'Orders', 'Parcels', 'Est. time', 'Est. distance', 'Retool DP cost £', 'Card £', 'Retool − card £', 'Extras £', 'Route adj. £', 'Route remark', 'Final payable £'],
-        rows: summary,
-        totals: ['TOTAL', '', '', sum(summary, 3), sum(summary, 4), sum(summary, 5), '', '', sum(summary, 8), sum(summary, 9), sum(summary, 10), sum(summary, 11), sum(summary, 12), '', total],
-        money: [8, 9, 10, 11, 12, 14]
-      }];
-      routes.forEach(function (r) {
-        sections.push({
-          driverHeading: 'Route ' + r.routeId + '  ·  ' + r.agentName + ' (' + r.agentId + ')  ·  ' + r.stops.length + ' stops  ·  ' + r.estTimeText + '  ·  ' + r.estDistText + '  ·  pay ' + gbp(r.payable),
-          title: 'Route sequence (Tookan order)',
-          header: ['Seq', 'Service Type', 'Order ID', 'Customer / Merchant', 'Address', 'Phone', 'Time', 'Parcels', 'Instructions', 'Pay £'],
-          rows: r.stops.map(function (s) {
-            return [s.seq, s.type, s.ref, s.name, s.address, s.phone ? "'" + s.phone : '', s.time, s.parcels == null ? '' : s.parcels, s.instructions, s.showCost && s.order.total != null ? s.order.total : ''];
-          }),
-          money: [9]
-        });
-      });
-      var rec = [];
-      routes.forEach(function (r) {
-        r.orders.forEach(function (o) {
-          rec.push([r.routeId, r.agentName, o.ref, o.merchant, o.dp, o.status, o.miles == null ? '' : o.miles, o.dpCost == null ? '' : o.dpCost,
-            o.cardFee == null ? '' : o.cardFee, o.diff == null ? '' : o.diff, o.cost == null ? '' : o.cost, o.costSource, o.extra, o.remark,
-            o.total == null ? '' : o.total, o.mismatch ? 'Retool ≠ card' : (o.costSource === 'card' ? 'Card fallback' : '')]);
-        });
-      });
-      sections.push({
-        title: 'PAY RECONCILIATION (per order)',
-        header: ['Route ID', 'Driver', 'Order ref', 'Merchant', 'DP', 'Status', 'Miles', 'Retool DP cost £', 'Card £', 'Diff £', 'Cost used £', 'Source', 'Extra £', 'Remark', 'Order total £', 'Flag'],
-        rows: rec, money: [7, 8, 9, 10, 12, 14]
-      });
-      var w = warns.filter(function (x) { return ids.indexOf(x.routeId) >= 0; });
-      if (w.length) sections.push({ title: 'CHECKS FOR OPS', header: ['Issue', 'Route ID', 'Driver', 'Order', 'Detail'], rows: w.map(function (x) { return [WARN_TITLE[x.kind], x.routeId, x.agentName, x.orderId, x.text]; }) });
+      var rows = M.sheetRows(routes);
+      var total = P.money(rows.reduce(function (s, r) { return s + (Number(r[11]) || 0); }, 0));
       return {
-        tabName: tabLabel(ymd), count: routes.reduce(function (s, r) { return s + r.stops.length; }, 0), total: gbp(total),
+        tabName: tabLabel(ymd), count: rows.length, total: gbp(total),
         body: {
-          meta: { formula: 'Driver pay = Retool DP cost per order (Dodo card used only when DP cost is missing: ' + P.describe(settings.pricing) + ')', generatedAt: new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }), sourceFile: S.tookan.fileName + ' + ' + S.retool.fileName, totalPayable: total },
-          sections: sections
+          meta: { sourceFile: S.tookan.fileName + ' + ' + S.retool.fileName, totalPayable: total },
+          table: { header: M.SHEET_HEADER, rows: rows, money: [9, 11], text: [1] }
         }
       };
     });
@@ -494,7 +455,7 @@
         uploadHistory.unshift({ tabName: res.tabName, url: res.url, mode: md === 'update' ? 'Updated' : (md === 'version' ? 'New version' : 'Created'), count: item.count, total: item.total, at: Date.now() });
         uploadHistory = uploadHistory.slice(0, 100);
         save(LS.history, uploadHistory);
-        toast('✓ Uploaded <b>' + esc(res.tabName) + '</b> (' + item.count + ' stops, ' + esc(item.total) + '). <a href="' + esc(res.url) + '" target="_blank" rel="noopener">Open tab ↗</a>', 'ok', 15000);
+        toast('✓ Uploaded <b>' + esc(res.tabName) + '</b> (' + item.count + ' orders, ' + esc(item.total) + '). <a href="' + esc(res.url) + '" target="_blank" rel="noopener">Open tab ↗</a>', 'ok', 15000);
       });
     });
   }
@@ -522,7 +483,7 @@
     var ok = settings.scriptUrl && settings.token;
     var h = ok ? '' : '<div class="notice warn" style="margin:0">Google Sheets isn\'t connected yet. Open <b>Settings</b>, or use the connect link from the Apps Script setup.</div>';
     h += '<h4>Waiting to upload</h4>' + (queue.length ? queue.map(function (q) {
-      return '<div class="row"><b>' + esc(q.tabName) + '</b><span class="muted small">' + q.count + ' stops · ' + esc(q.error ? 'Error: ' + q.error : (navigator.onLine ? 'ready' : 'offline')) + '</span><span class="spacer"></span><button class="btn quiet" data-dequeue="' + esc(q.id) + '" type="button">Remove</button></div>';
+      return '<div class="row"><b>' + esc(q.tabName) + '</b><span class="muted small">' + q.count + ' orders · ' + esc(q.error ? 'Error: ' + q.error : (navigator.onLine ? 'ready' : 'offline')) + '</span><span class="spacer"></span><button class="btn quiet" data-dequeue="' + esc(q.id) + '" type="button">Remove</button></div>';
     }).join('') : '<span class="muted small">Nothing waiting.</span>');
     h += '<h4>Recent uploads</h4>' + (uploadHistory.length ? uploadHistory.slice(0, 15).map(function (x) {
       return '<div class="row small"><b>' + esc(x.tabName) + '</b><span class="muted">' + esc(x.mode) + ' · ' + esc(x.total || '') + ' · ' + esc(new Date(x.at).toLocaleString('en-GB')) + '</span><span class="spacer"></span>' + (x.url ? '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Open ↗</a>' : '') + '</div>';
@@ -649,16 +610,8 @@
     $('#btnUpload').addEventListener('click', startUpload);
     $('#btnPrintAll').addEventListener('click', function () { printRoutes(view.route); });
     $('#btnCsv').addEventListener('click', function () {
-      var rows = [['Date', 'Route ID', 'Driver ID', 'Driver', 'Seq', 'Service Type', 'Order ID', 'Customer / Merchant', 'Address', 'Phone', 'Time', 'Parcels', 'Instructions', 'Merchant', 'Miles', 'Retool DP cost', 'Card fee', 'Extra', 'Remark', 'Order pay']];
-      recalc().routes.forEach(function (r) {
-        r.stops.forEach(function (s) {
-          var o = s.order;
-          rows.push([r.date, r.routeId, r.agentId, r.agentName, s.seq, s.type, s.ref, s.name, s.address, s.phone, s.time, s.parcels == null ? '' : s.parcels, s.instructions,
-            o.merchant, o.miles == null ? '' : o.miles, s.showCost && o.dpCost != null ? o.dpCost : '', s.showCost && o.cardFee != null ? o.cardFee : '',
-            s.showCost ? o.extra || '' : '', s.showCost ? o.remark : '', s.showCost && o.total != null ? o.total : '']);
-        });
-      });
-      download('dodo-routes-' + tabLabel(S.date || (result.routes[0] && result.routes[0].ymd)) + '.csv', toCSV(rows));
+      var rows = [M.SHEET_HEADER].concat(M.sheetRows(recalc().routes));
+      download('dodo-deliveries-' + tabLabel(S.date || (result.routes[0] && result.routes[0].ymd)) + '.csv', toCSV(rows));
     });
 
     $('#btnUploads').addEventListener('click', function () { renderUploads(); $('#dlgUploads').showModal(); });

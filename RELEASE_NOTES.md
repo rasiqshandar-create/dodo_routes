@@ -1,5 +1,17 @@
 # Dodo Routes: Release Notes
 
+## Version 2.1 · 2 November 2026: Weekly-sheet export format
+
+- **CSV download and Google Sheets upload now match the *Dodo Deliveries Data* weekly sheet exactly:**
+  `S. No. · Order ID · Agent_Name · Merchant · Customer Name · Delivery Before · Actual · Delivery · OTD · Price · Refund · Driver Cost · Remarks · Weekly · Weekly`
+  One row per order, header in row 1, nothing else on the tab, so it can be pasted straight into the weekly sheet.
+- **Price** is the Retool *Platform price*. It appears **only** in the CSV export and the Sheets upload, never on the driver route sheet or PDF.
+- **Driver Cost** = Retool DP cost + any extra £, and **Remarks** = the order remark. A route extra/deduction gets its own `ROUTE <id>` row.
+- **Delivery Before / Actual / Delivery** come from Retool *Dropoff end* and *Delivered at*, in London time and the weekly sheet's date format. Undelivered orders leave Actual, Delivery and OTD blank.
+- **OTD** follows the weekly sheet's existing rule: `Yes` if delivered on or before the Delivery Before **day**.
+- **Order IDs** are written as text in Sheets, so refs like `000101779` keep their leading zeros.
+- **Redeploy:** the Netlify zip (`app.js`, `merge.js`, `index.html` changed) **and** `Code.gs` (new table layout). After pasting `Code.gs`, go to **Deploy → Manage deployments → Edit → New version**.
+
 ## Version 2.0 · 2 November 2026: One document per driver
 
 **Drivers now get a single route sheet that replaces both the Tookan Route PDF and the old Dodo Routes PDF.**
