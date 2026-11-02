@@ -346,6 +346,23 @@
     });
   }
 
+  // After an edit inside one route: recalc, then redraw only that sheet plus the totals.
+  function renderAfterEdit(routeId) {
+    recalc();
+    var r = result.routes.filter(function (x) { return x.routeId === routeId; })[0];
+    var el = $('#routes .sheet[data-route="' + (window.CSS && CSS.escape ? CSS.escape(routeId) : routeId) + '"]');
+    if (!r || !el) { render(); return; }
+    var open = $$('details.payd', el).map(function (d) { return d.open; });
+    var tmp = document.createElement('div');
+    tmp.innerHTML = routeCard(r);
+    var fresh = tmp.firstElementChild;
+    $$('details.payd', fresh).forEach(function (d, i) { if (open[i] !== undefined) d.open = open[i]; });
+    el.replaceWith(fresh);
+    renderWarnings();
+    renderStats();
+    $('#abTotal').textContent = gbp(result.totals.payable);
+  }
+
   function renderNet() {
     var on = navigator.onLine, p = $('#netPill');
     p.className = 'pill ' + (on ? 'ok' : 'bad');
@@ -614,7 +631,7 @@
         var a = S.routeAdj[t.dataset.route] = S.routeAdj[t.dataset.route] || {};
         if (t.classList.contains('radj')) a.amount = t.value === '' ? '' : Number(t.value);
         else a.remark = t.value;
-        persist(); render(); return;
+        persist(); renderAfterEdit(t.dataset.route); return;
       }
       var tr = t.closest('tr[data-key]');
       if (!tr) return;
@@ -622,7 +639,7 @@
       if (t.classList.contains('extra')) ed.extra = t.value === '' ? '' : Number(t.value);
       else if (t.classList.contains('remark')) ed.remark = t.value;
       else return;
-      persist(); render();
+      persist(); renderAfterEdit(t.closest('.sheet').dataset.route);
     });
     $('#routes').addEventListener('click', function (e) {
       var b = e.target.closest('[data-print]');
