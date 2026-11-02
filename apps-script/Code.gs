@@ -21,8 +21,8 @@ var DEFAULT_SPREADSHEET_ID = '1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk';
 var HEADER_BG = '#1f3a5f';
 var SECTION_BG = '#e8eef6';
 
-// Where the tool is hosted (GitHub Pages). The connect link opens this with the settings attached.
-var APP_URL = 'https://rasiqshandar-create.github.io/dodo_routes/';
+// Where the tool is hosted (Netlify). The connect link opens this with the settings attached.
+var APP_URL = 'https://dodo-delivery-routes.netlify.app/';
 
 /**
  * Run once from the Apps Script editor AFTER deploying the web app (select "setup" → Run).

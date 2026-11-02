@@ -1,0 +1,8 @@
+{
+  "name": "dodo-routes",
+  "private": true,
+  "description": "Tookan route + Retool export → one route sheet and pay per driver",
+  "scripts": {
+    "test": "node tests/pricing.test.js && node tests/merge.test.js"
+  }
+}

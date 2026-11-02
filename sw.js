@@ -1,6 +1,6 @@
 /* Offline support: cache the app shell, serve it when there is no connection. */
-var CACHE = 'dodo-routes-v2';
-var SHELL = ['./', 'index.html', 'app.js', 'pricing.js', 'sample-data.js', 'manifest.webmanifest', 'icon.svg'];
+var CACHE = 'dodo-routes-v3';
+var SHELL = ['./', 'index.html', 'app.js', 'pricing.js', 'merge.js', 'sample-data.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));

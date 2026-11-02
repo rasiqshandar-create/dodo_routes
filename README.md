@@ -1,76 +1,76 @@
 # Dodo Routes
 
-A standalone web app that calculates Dodo driver payments from a delivery export, then uploads the results to Google Sheets in one click. It runs fully in the browser with no server and no dependencies, and works offline.
+A standalone web app that turns the day's **Tookan route export** and **Retool order export** into **one route sheet per driver**. Each sheet follows the exact Tookan stop sequence and is enriched with parcels, delivery instructions and driver pay from Retool. Print them all as **one PDF** (one route per page) and upload everything to Google Sheets in one click. It runs fully in the browser (no server, no dependencies) and works offline.
 
-**Flow:** upload CSV → assign drivers → fees calculate automatically → review route totals → **Upload to Google Sheets**.
+**Flow:** drop the Tookan CSV + the Retool CSV → check the route sheets and the *Checks for Ops* panel → **Print / Save PDF** for drivers → **Upload to Google Sheets**.
 
-## Pricing formula (Dodo)
+## Inputs
 
-Taken from *Dodo pricing for claude.xlsx*:
-
-```
-Fee per drop = max( £10.00 , £8.00 + £0.40 × distance rounded UP to the next 0.5 mi )
-Route total  = Σ drop fees + Σ per-drop extra charges + route adjustment
-Driver pay   = Σ route totals for that driver
-```
-
-| Distance | Band charged | Calculation | Fee |
-|---|---|---|---|
-| 3.10 mi | 3.5 mi | £8 + 3.5 × £0.40 = £9.40 → below minimum | **£10.00** |
-| 5.00 mi | 5.0 mi | £8 + 5.0 × £0.40 | **£10.00** |
-| 5.01 mi | 5.5 mi | £8 + 5.5 × £0.40 | **£10.20** |
-| 8.20 mi | 8.5 mi | £8 + 8.5 × £0.40 | **£11.40** |
-
-Validation:
-- `tests/pricing.test.js` checks every band in the pricing sheet (0–30 mi) plus live examples.
-- Against the 385 live orders from 15 Oct onwards (`Dodo_Driver_Cost_Gap_Review`), 55 of the 60 system-calculated (non-round) Evermile costs match to the penny. Three are 1p lower upstream (e.g. £10.19 vs £10.20) and two use a different rate. The round-pound amounts are the manual/old-rate payments already flagged in the Gap Review.
-
-Base, per-mile, minimum and band size can be edited in **Settings → Pricing** (locked by default). There is also an optional "extra per additional drop" fee, which is **off (£0)** because the current card has no per-drop element.
-
-## Using it
-
-1. **Upload** the day's assigned-orders CSV. Columns are matched automatically. Check **Column matching** if anything looks off.
-2. Each **driver** gets their own card. Use the chips at the top to view one driver at a time.
-   - **1 · Pickup details**: Order IDs, merchant (address and phone), total parcels to collect, pickup slot. Grouped by merchant and slot.
-   - **2 · Delivery details**: stop #, Order ID, customer, address, tap-to-call phone, delivery slot, parcels, instructions. In stop-sequence order (or by slot).
-   - **£ Pay calculation** (collapsed): per-order miles → band → fee, an optional **Extra £** and **Remark** per order, and a route-level extra or deduction with a reason.
-3. Orders without a driver appear under **Unassigned**. Type a name to assign them.
-4. **Print** gives one page per driver (or just the selected driver). **Download CSV** exports everything.
-5. **Upload to Google Sheets** creates a tab for the date (e.g. `19-Oct-2026`) containing the driver payment summary, then each driver's Pickup and Delivery tables, then the per-order pay calculation. If the tab exists you choose **Update** or **New version**. When offline, uploads queue and sync automatically.
-
-## CSV format
-
-Download the template from the app (**Download CSV template**) or use [`templates/dodo-routes-template.csv`](templates/dodo-routes-template.csv). One row per order:
-
-| Column | Required | Notes |
+| Upload | What it provides | Key columns |
 |---|---|---|
-| Delivery Date | **Yes** | `19/10/2026` or `2026-10-19`. Names the Sheets tab and the pay day. |
-| Order ID | **Yes** | Unique per order. |
-| Merchant Name | Yes | Pickup grouping. |
-| Merchant Phone | Optional | Shown on the pickup list so the driver can call the store. |
-| Pickup Address | Yes | Include the postcode. |
-| Pickup Slot | Yes | e.g. `08:00-09:00`. |
-| Customer Name | Yes | |
-| Customer Phone | Yes | Keep as text so the leading 0 isn't lost (or use `+44…`). |
-| Customer Address | Yes | Include the postcode. |
-| Delivery Slot | Yes | e.g. `10:00-12:00`. |
-| Delivery Instructions | Optional | |
-| Parcel Count | Yes | Defaults to 1 if blank. |
-| Driver Name | Yes | Spell names the same way every day so pay totals group correctly. |
-| Vehicle Type | Optional | Shown on the card. Pricing is currently the same for all vehicles. |
-| Distance (Miles) | **Yes for pay** | Pickup → drop-off miles per order. This drives the fee. If blank, it's estimated from the postcodes (flagged for checking). |
-| Stop Sequence | Optional | 1, 2, 3… delivery order on the route. Otherwise sorted by slot. |
-| Extra Charge (£) | Optional | Pre-fills the per-order extra (waiting time, parking…). |
-| Remarks | Optional | Reason for the extra charge. |
+| **1 · Tookan route export** | Routes and stop **sequence**, one row per task (Pick-up / Delivery) | Route ID, Date, Task ID, Service Type, Agent ID, Agent Name, Order ID, Customer Name, Address, Phone Number, Time, Estimated Time (MINs), Estimated Distance (KMS) |
+| **2 · Retool order export** | Parcels, instructions, **driver cost**, one row per order | Order ref, Merchant name, DP, Order/Delivery status, **DP cost**, Parcel count, Distance miles, Delivery instructions, Driver name… |
+
+Either file can go in either box: the app recognises which export it is from the headers. Columns are auto-matched; check **Column matching** if a header was renamed.
+
+## How the two files are joined
+
+- **Join key:** Tookan `Order ID` = Retool `Order ref`. Retool's `Order ID` is a UUID and is never used.
+- **Duplicate refs in Retool:** the row whose `Driver name` matches the Tookan `Agent Name` wins (trimmed, case-insensitive). Ties go to `DP` = Dodo / Evermile Own Fleet, then to a non-cancelled row.
+- **Only orders on the Tookan routes are used.** Every other Retool row (other DPs, other days) is ignored.
+- **Tookan orders with no Retool match are skipped** from the route sheet and listed in **Checks for Ops**.
+- **Orders with only a Delivery task, or only a Pickup task,** are kept and flagged.
+
+## Sequence (Tookan is the source of truth)
+
+Stops keep the Tookan row order within each Route ID and are numbered 1…N. Nothing is re-sorted or grouped, so the interleaved pickup/delivery order is preserved.
+
+## Driver pay (Retool is the source of truth)
+
+```
+Order pay   = Retool DP cost (+ optional extra £)
+Driver pay  = Σ order pay over the route, each order counted once (not per pickup + delivery row)
+            + optional route extra / deduction
+```
+
+- **Fallback:** the Dodo card is used only when an order has no Retool DP cost:
+  `max(£10, £8 + £0.40 × Retool "Distance miles" rounded up to the next 0.5 mi)`.
+- **Reconciliation:** every order shows a small **card £x** warning when the Retool DP cost and the card differ by more than £0.01. The *Pay & reconciliation* section lists Retool vs card vs difference per order.
+- **Placement:** order pay is printed on the order's **DELIVERY** row (or on its pickup row if it has no delivery).
+
+Card validation: `tests/pricing.test.js` checks every band in the pricing sheet (0–30 mi).
+
+## The route sheet (screen and PDF)
+
+Header (all from Tookan):
+- **Dodo Delivery**, Date
+- `Driver ID : … Driver Name : …`
+- **Route ID** badge, Estimated Time, Estimated Distance
+
+Plus **Driver pay** (Retool) next to the header.
+
+| Seq | Service Type | Order ID | Customer / Merchant | Address | Phone | Time | Parcels | Instructions | Pay | Signature |
+|---|---|---|---|---|---|---|---|---|---|---|
+
+- Parcels, Instructions and Pay come from Retool. Everything else comes from Tookan. The Signature column is left blank for sign-off.
+- **Print / Save PDF** prints every route into one PDF, each route starting on a new page (A4 landscape, table header repeated on continuation pages). **Print** on a single route prints just that driver.
+- Screen-only extras (left out of the PDF): the *Pay & reconciliation* table (Retool vs card, extra £ and remark per order, route extra/deduction) and the optional *Pickup & delivery summaries*.
+- Phones: the leading apostrophe from Retool/Excel is stripped. UK numbers are shown as `+44 7xxx xxxxxx` / `+44 20 xxxx xxxx` and are tap-to-call. Addresses keep their postcodes.
+
+## Google Sheets
+
+**Upload to Google Sheets** creates one tab per date (e.g. `02-Nov-2026`) containing:
+1. **Route & driver pay summary**: Route ID, driver, stops, orders, parcels, est. time/distance, Retool DP cost, card, difference, extras, final payable.
+2. **Each route's sequence**, exactly as on the PDF.
+3. **Pay reconciliation** per order.
+4. **Checks for Ops**: unmatched orders and other warnings.
+
+If the tab exists you choose **Update** or **New version**. Offline uploads queue and sync automatically.
 
 ## One-time setup (about 5 minutes, two parts)
 
-### A. Put the tool online (GitHub Pages)
-1. In this repo, open **Settings → Pages**.
-2. Under **Build and deployment**, set Source to **Deploy from a branch**, Branch to **`main`**, folder to **`/ (root)`**, then **Save**.
-3. After about a minute the tool is live at **https://rasiqshandar-create.github.io/dodo_routes/**.
-
-> Pages on a **private** repo needs GitHub Pro or Team. On the free plan, either make the repo public (it contains no secrets or customer data) or drag the folder onto <https://app.netlify.com/drop>. If you host elsewhere, change `APP_URL` at the top of `apps-script/Code.gs`.
+### A. Host the tool (Netlify)
+Live at **https://dodo-delivery-routes.netlify.app/**. To update it, drag a zip of the site files (`index.html app.js merge.js pricing.js sample-data.js sw.js manifest.webmanifest icon.svg`) onto the site's **Deploys** page in Netlify. If you move hosts, change `APP_URL` at the top of `apps-script/Code.gs`.
 
 ### B. Connect the Dodo Routes sheet
 1. Open **Dodo Routes**: <https://docs.google.com/spreadsheets/d/1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk/edit>
@@ -89,20 +89,22 @@ Once opened over https, the app is cached for offline use. In Chrome/Edge you ca
 
 ## Data and privacy
 
-- Uploaded CSVs are processed in the browser and never sent to a server.
-- The only outbound calls are postcodes to postcodes.io / OSRM (for distance lookup), and results to **your** Apps Script when you click Upload.
-- Session data, driver roster, queue and history live in the browser's local storage on that device.
+- Both CSVs are processed in the browser and never sent to a server.
+- The only outbound call is to **your** Apps Script when you click Upload.
+- Session data, queue and history live in the browser's local storage on that device.
+- The bundled sample (`samples/`, `sample-data.js`) is fictional. Don't commit real exports: they contain customer names, addresses and phone numbers.
 
 ## Files
 
 ```
-index.html            UI
-app.js                app logic (CSV, mapping, distances, assignment, queue, Sheets upload)
-pricing.js            pricing engine (shared with tests)
-sample-data.js        fictional sample orders + CSV template
-templates/            CSV template
-sw.js                 offline cache
-manifest.webmanifest  installable app metadata
-apps-script/Code.gs   Google Sheets connector
-tests/pricing.test.js node tests/pricing.test.js
+index.html             UI (two upload zones, route sheets, print layout)
+app.js                 app logic (upload, rendering, PDF/print, queue, Sheets upload)
+merge.js               Tookan ⨝ Retool join, sequencing, pay (shared with tests)
+pricing.js             Dodo card (fallback pricing)
+sample-data.js         fictional two-file sample (embedded for "Try with sample data")
+samples/               the same sample as CSV files
+sw.js                  offline cache
+manifest.webmanifest   installable app metadata
+apps-script/Code.gs    Google Sheets connector
+tests/                 npm test  (pricing + merge; real-file acceptance via DODO_TOOKAN / DODO_RETOOL)
 ```

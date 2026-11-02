@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dodo Routes</title>
-<meta name="description" content="Driver-wise pickup and delivery sheets with Dodo driver pay, uploaded to Google Sheets in one click.">
+<meta name="description" content="Tookan route + Retool export → one route sheet and pay per driver, as a single PDF and a Google Sheets tab.">
 <meta name="theme-color" content="#1f3a5f">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -137,6 +137,52 @@ details.payd > summary .chev { color: var(--muted); transition: transform .15s; 
 details.payd[open] > summary .chev { transform: rotate(90deg); }
 .adj { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 
+/* Two upload zones */
+.zones { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 720px) { .zones { grid-template-columns: 1fr; } }
+.drop.done { border-style: solid; border-color: var(--ok); background: var(--ok-soft); }
+.drop.done .icon { background: var(--ok); color: #fff; }
+.filechip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mapgroup + .mapgroup { margin-top: 10px; }
+#warnings > details > summary { cursor: pointer; font-weight: 650; }
+.wgroup { margin-top: 12px; }
+.wtitle { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 4px; }
+.sumgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+@media (max-width: 900px) { .sumgrid { grid-template-columns: 1fr; } }
+
+/* Route sheet (screen + PDF) */
+.sheet { padding: 0; overflow: hidden; }
+.sheet-head { padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); display: grid; gap: 6px; }
+.sh-top { display: flex; align-items: baseline; gap: 10px; }
+.sh-company { font-size: 18px; font-weight: 800; flex: 1; text-align: center; }
+.sh-date { font-size: 12.5px; white-space: nowrap; }
+.sh-driver { text-align: center; font-size: 14px; }
+.sh-driver .sp { display: inline-block; width: 24px; }
+.sh-meta { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+.route-badge { background: #3fae49; color: #fff; border-radius: 999px; padding: 3px 12px; font-weight: 700; font-size: 13px; }
+.sh-pay { display: grid; justify-items: end; line-height: 1.15; }
+.sh-pay .k { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.sh-pay .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sh-pay .k2 { font-size: 11.5px; color: var(--muted); }
+.tbl.route td, .tbl.route th { font-size: 13px; }
+.tbl.route td.seq { font-weight: 700; }
+.tbl.route .sig { width: 110px; }
+.tbl.route tr.pu td { background: color-mix(in srgb, #b36b00 6%, transparent); }
+.tbl.route tr.cx td { text-decoration: line-through; opacity: .6; }
+.stype { font-size: 11px; font-weight: 750; letter-spacing: .03em; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+.stype.p { background: #fff1db; color: #8a5200; }
+.stype.d { background: #e2f4e8; color: #17663a; }
+.nowrap { white-space: nowrap; }
+.sheet section { padding: 12px 16px; border-top: 1px solid var(--border); }
+.sec-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+
+@media (min-width: 900px) {
+  .tbl.route { table-layout: fixed; }
+  .c-seq { width: 3.5%; } .c-type { width: 8%; } .c-id { width: 9%; } .c-name { width: 11.5%; } .c-addr { width: 21%; }
+  .c-phone { width: 11%; } .c-time { width: 6.5%; } .c-parcels { width: 5.5%; } .c-instr { width: 11%; } .c-pay { width: 7%; } .c-sig { width: 6%; }
+  .tbl.route td { overflow-wrap: anywhere; }
+}
+
 /* Mobile: stack table rows as cards */
 @media (max-width: 720px) {
   .tbl.stack thead { display: none; }
@@ -145,6 +191,11 @@ details.payd[open] > summary .chev { transform: rotate(90deg); }
   .tbl.stack td { display: block; position: relative; border: 0; padding: 3px 0 3px 104px; min-height: 24px; }
   .tbl.stack td::before { content: attr(data-l); position: absolute; left: 0; top: 5px; width: 96px; font-size: 11px; color: var(--muted); font-weight: 650; text-transform: uppercase; letter-spacing: .02em; }
   .tbl.stack td:empty { display: none; }
+  .tbl.route .sig { display: none; }
+  .tbl.stack tfoot td.sig { display: none; }
+  .sh-company { text-align: left; }
+  .sh-driver { text-align: left; }
+  .sh-pay { justify-items: start; }
   .tbl.stack td.num { text-align: left; }
   .tbl.stack tfoot tr { display: flex; justify-content: space-between; }
   .tbl.stack tfoot td { padding-left: 0; }
@@ -182,14 +233,34 @@ dialog h4 { margin: 6px 0 0; font-size: 13px; }
 .toast.ok { background: var(--ok); color: #fff; }
 .toast.bad { background: var(--bad); color: #fff; }
 
+@page { size: A4 landscape; margin: 10mm; }
 @media print {
-  header.top, .actionbar, .toasts, #filebar, .stats, .chips, .noprint, details.payd { display: none !important; }
-  body { background: #fff; color: #000; }
+  header.top, .actionbar, .toasts, .stats, .chips, .noprint, #emptyView { display: none !important; }
+  :root { color-scheme: light; --text: #000; --muted: #444; --border: #bbb; --surface: #fff; --surface-2: #f2f2f2; }
+  body { background: #fff; color: #000; font-size: 10.5pt; }
   main { padding: 0; max-width: none; }
-  .card { box-shadow: none; border: 1px solid #bbb; break-inside: auto; }
-  .driver { page-break-after: always; }
-  body.print-one .driver:not(.print-target) { display: none !important; }
-  .driver > .head { background: #eee; }
+  .card { box-shadow: none; border: 0; margin: 0; }
+  .sheet { break-after: page; page-break-after: always; overflow: visible; }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
+  body.print-one .sheet:not(.print-target) { display: none !important; }
+  .sheet-head { background: #fff; border-bottom: 0; padding: 0 0 8px; }
+  .wrap { overflow: visible; }
+  .tbl.route { border: 1px solid #999; }
+  .tbl.route th, .tbl.route td { border: 1px solid #999; padding: 5px 6px; font-size: 9.5pt; }
+  .tbl.route thead { display: table-header-group; }
+  .tbl.route tr { break-inside: avoid; page-break-inside: avoid; }
+  .tbl.route tr.pu td { background: #fff; }
+  .tbl.route { table-layout: fixed; width: 100%; }
+  .tbl.route tfoot { display: table-row-group; }
+  .tbl.route th { font-size: 8pt; white-space: normal; }
+  .c-seq { width: 3.5%; } .c-type { width: 7.5%; } .c-id { width: 9%; } .c-name { width: 11.5%; } .c-addr { width: 22%; }
+  .c-phone { width: 11.5%; } .c-time { width: 6.5%; } .c-parcels { width: 6%; } .c-instr { width: 10.5%; } .c-pay { width: 5.5%; } .c-sig { width: 6.5%; }
+  .tbl.route a.tel { white-space: normal; }
+  .tbl.route td { overflow-wrap: anywhere; }
+  .tbl.route th { text-transform: none; letter-spacing: 0; font-size: 8.5pt; color: #000; overflow-wrap: normal; }
+  .tbl.route td.id { word-break: break-all; }
+  .tbl.route td.nowrap { white-space: normal; }
+  .stype { padding: 0; background: none !important; color: #000 !important; font-size: 9pt; }
   a { color: #000; text-decoration: none; }
 }
 </style>
@@ -206,46 +277,37 @@ dialog h4 { margin: 6px 0 0; font-size: 13px; }
 </header>
 
 <main>
-  <!-- Empty state -->
+  <!-- Upload: two exports -->
   <section id="emptyView" class="upload">
-    <h1>Upload today's assigned orders</h1>
-    <p>Drop the CSV and get each driver's pickups, deliveries and pay. You can then upload everything to Google Sheets in one click.</p>
-    <label class="drop" id="dropZone" tabindex="0">
-      <span class="icon">↑</span>
-      <strong>Drop CSV here or click to choose</strong>
-      <span class="muted small">.csv file · nothing leaves your device until you upload to Sheets</span>
-      <input type="file" id="fileInput" accept=".csv,.tsv,.txt,text/csv" class="hidden">
-    </label>
+    <h1>Upload today's two exports</h1>
+    <p>The <b>Tookan route export</b> gives the stop order. The <b>Retool order export</b> adds parcels, instructions and driver cost. You get one route sheet per driver, ready to print as a single PDF.</p>
+    <div class="zones" id="zones"></div>
     <div class="links">
-      <button class="btn quiet" id="btnTemplate" type="button">Download CSV template</button>
       <button class="btn quiet" id="btnSample" type="button">Try with sample data</button>
     </div>
   </section>
 
   <!-- Loaded state -->
   <section id="loadedView" class="hidden">
-    <div class="card" id="filebar">
+    <div class="card noprint" id="filebar">
       <div class="filebar">
-        <span class="name" id="fileName"></span>
-        <span class="muted" id="fileMeta"></span>
+        <span id="fileChips" class="row"></span>
         <span class="spacer"></span>
-        <label class="row small muted" id="dateWrap">Date
-          <select id="fDate"></select>
-          <input type="date" id="fDateOverride" class="hidden">
-        </label>
-        <button class="btn" id="btnReplace" type="button">Replace file</button>
+        <label class="row small muted" id="dateWrap">Date <select id="fDate"></select></label>
+        <button class="btn" id="btnReplace" type="button">Replace files</button>
         <button class="btn quiet" id="btnClear" type="button">Clear</button>
       </div>
       <div id="notices"></div>
       <details class="cols" id="colsDetails">
         <summary>Column matching</summary>
-        <div class="mapgrid" id="mappingGrid"></div>
+        <div id="mappingGrid"></div>
       </details>
     </div>
+    <div class="card noprint hidden" id="warnings"></div>
 
     <div class="stats" id="stats"></div>
     <div class="chips" id="chips" role="toolbar" aria-label="Drivers"></div>
-    <div id="drivers"></div>
+    <div id="routes"></div>
   </section>
 </main>
 
@@ -255,7 +317,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13px; }
     <span class="muted small" id="abMeta"></span>
     <span class="spacer"></span>
     <button class="btn opt" id="btnCsv" type="button">Download CSV</button>
-    <button class="btn opt" id="btnPrintAll" type="button">Print</button>
+    <button class="btn opt" id="btnPrintAll" type="button">Print / Save PDF</button>
     <button class="btn primary" id="btnUpload" type="button">Upload to Google Sheets</button>
   </div>
 </div>
@@ -271,7 +333,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13px; }
       <label class="field">Apps Script Web App URL<input id="sUrl" placeholder="https://script.google.com/macros/s/…/exec"></label>
       <label class="field">Upload token<input id="sToken" type="password" autocomplete="off"></label>
       <div class="row"><button class="btn" id="btnTest" type="button">Test connection</button><span id="testResult" class="small"></span></div>
-      <h4>Pricing</h4>
+      <h4>Dodo card (fallback when Retool has no DP cost)</h4>
       <p class="small muted" style="margin:0" id="formulaText"></p>
       <label class="row small"><input type="checkbox" id="sUnlock"> Unlock to edit</label>
       <div class="grid2" id="pricingFields">
@@ -279,10 +341,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13px; }
         <label class="field">Per mile £<input type="number" step="0.01" id="sPerMile"></label>
         <label class="field">Minimum £<input type="number" step="0.01" id="sFloor"></label>
         <label class="field">Band (mi)<input type="number" step="0.1" id="sBand"></label>
-        <label class="field">Per extra drop £<input type="number" step="0.01" id="sDrop"></label>
       </div>
-      <h4>Missing distances</h4>
-      <label class="row small"><input type="checkbox" id="sRoad"> Look up road distance from postcodes when the CSV has none</label>
       <h4>Theme</h4>
       <select id="sTheme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
     </div>
@@ -316,6 +375,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13px; }
 </dialog>
 
 <script src="pricing.js"></script>
+<script src="merge.js"></script>
 <script src="sample-data.js"></script>
 <script src="app.js"></script>
 </body>
