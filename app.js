@@ -855,7 +855,7 @@
         var isAmt = t.classList.contains('radj');
         change({ type: 'adj', key: t.dataset.route, field: isAmt ? 'amount' : 'remark', value: isAmt ? (t.value === '' ? '' : Number(t.value)) : t.value },
           isAmt ? 'set a route ' + (Number(t.value) < 0 ? 'deduction' : 'extra') + ' of ' + gbp(Number(t.value) || 0) + ' for ' + r.agentName : 'updated the route remark for ' + r.agentName);
-        render(); return;
+        renderSoon(); return;
       }
       var tr = t.closest('tr[data-key]');
       if (!tr) return;
@@ -864,8 +864,12 @@
       if (t.classList.contains('extra')) change({ type: 'edit', key: key, field: 'extra', value: t.value === '' ? '' : Number(t.value) }, 'set extra ' + gbp(Number(t.value) || 0) + ' on ' + ref + ' (' + r.agentName + ')');
       else if (t.classList.contains('remark')) change({ type: 'edit', key: key, field: 'remark', value: t.value }, 'added a remark on ' + ref + ' (' + r.agentName + ')');
       else return;
-      render();
+      renderSoon();
     });
+    // A "change" fires before focus moves to the box the user clicked next. Re-render a moment
+    // later so the cursor is restored to that new box, not pulled back to the one just edited.
+    var renderTimer = null;
+    function renderSoon() { clearTimeout(renderTimer); renderTimer = setTimeout(render, 0); }
     $('#routes').addEventListener('click', function (e) {
       var b = e.target.closest('[data-print]');
       if (b) printRoutes(b.dataset.print);
