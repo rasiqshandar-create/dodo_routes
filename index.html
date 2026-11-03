@@ -45,6 +45,7 @@ header.top { position: sticky; top: 0; z-index: 20; background: var(--surface); 
 .top-inner { max-width: 1200px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; }
 .logos { display: inline-flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 6px 10px; border: 1px solid var(--border); }
 .logos img { display: block; height: 22px; width: auto; }
+.logos img.ev { height: 13px; opacity: .9; }
 .logos .x { color: #8b93a7; font-size: 13px; }
 .app-title { font-weight: 750; font-size: 16px; white-space: nowrap; }
 .live { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 10px 4px 8px; font: inherit; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; }
@@ -155,12 +156,12 @@ details.cols > summary { cursor: pointer; color: var(--muted); font-size: 13px; 
 .sh-brand { display: flex; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 3px solid var(--navy); }
 .sh-brand .plate { background: #fff; border-radius: 8px; padding: 4px 6px; display: inline-flex; }
 .sh-brand img.dodo { height: 30px; display: block; }
-.sh-brand img.ever { height: 20px; display: block; }
+.sh-brand img.ever { height: 12px; display: block; }
 .sh-brand .ttl { flex: 1; text-align: center; }
 .sh-brand .ttl .a { font-size: 18px; font-weight: 800; }
 .sh-brand .ttl .b { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .sh-brand .pw { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.sh-brand .pw span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.sh-brand .pw span { font-size: 8.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .sh-line { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; font-size: 14px; }
 .route-badge { background: #3fae49; color: #fff; border-radius: 999px; padding: 3px 12px; font-weight: 750; font-size: 13px; }
 .sh-pay { display: grid; justify-items: end; line-height: 1.15; margin-left: auto; }
@@ -241,6 +242,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
   .zones { grid-template-columns: 1fr; }
   .app-title { display: none; }
   .logos img { height: 18px; }
+  .logos img.ev { height: 11px; }
   .steps li .t { display: none; }
   .steps li { justify-content: center; }
   .steps li.current .t { display: inline; }
@@ -305,7 +307,8 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
   .sheet-head { gap: 4px; }
   .sh-brand { padding-bottom: 6px; }
   .sh-brand img.dodo { height: 24px; }
-  .sh-brand img.ever { height: 16px; }
+  .sh-brand img.ever { height: 10px; }
+  .sh-brand .pw span { font-size: 6.5pt; }
   .sh-brand .ttl .a { font-size: 13pt; }
   .sh-line { font-size: 10pt; gap: 14px; }
   .sh-pay .v { font-size: 16pt; }
@@ -317,7 +320,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
 <body>
 <header class="top">
   <div class="top-inner">
-    <span class="logos"><img src="brand/dodo.png" alt="Dodo"><span class="x">×</span><img src="brand/evermile.png" alt="Evermile"></span>
+    <span class="logos"><img src="brand/dodo.png" alt="Dodo"><span class="x">×</span><img class="ev" src="brand/evermile.png" alt="Evermile"></span>
     <span class="app-title">Driver routes</span>
     <span class="spacer"></span>
     <button id="liveChip" class="live" type="button" title="Team sharing"><span class="dot"></span><span class="faces" id="faces"></span><span class="lbl" id="liveLbl">…</span></button>

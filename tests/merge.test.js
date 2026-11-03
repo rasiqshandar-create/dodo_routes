@@ -86,6 +86,13 @@ const withEdits = M.build(T.objs, R.objs, { edits: { '70001|SB1001': { extra: 2.
 eq(withEdits.routes[0].payable, 57.2, '55.70 + 2.50 − 1.00');
 eq(withEdits.routes[0].stops[3].order.total, 13.9);
 
+// Excel-mangled refs: leading zeros dropped on one side still join.
+const zT = [{ routeId: 'R1', type: 'Delivery', agentName: 'Z', orderId: '101779' }];
+const zR = [{ ref: '000101779', cost: '14.99', driver: 'Z', dp: 'Dodo', miles: '6' }];
+eq(M.build(zT, zR, {}).routes[0].orders[0].dpCost, 14.99, 'leading zeros stripped by Excel still match');
+eq(M.build([{ routeId: 'R1', type: 'Delivery', agentName: 'Z', orderId: '00042' }], [{ ref: '42', cost: '10', driver: 'Z' }], {}).routes[0].orders.length, 1, 'zeros on the Tookan side too');
+eq(M.build([{ routeId: 'R1', type: 'Delivery', agentName: 'Z', orderId: 'CS0042' }], [{ ref: 'CS42', cost: '10', driver: 'Z' }], {}).unmatched.length, 1, 'non-numeric refs are not loosened');
+
 // Weekly-sheet export format (CSV + Google Sheets).
 eq(M.SHEET_HEADER, ['S. No.', 'Order ID', 'Agent_Name', 'Merchant', 'Customer Name', 'Delivery Before', 'Actual', 'Delivery', 'OTD', 'Price', 'Refund', 'Driver Cost', 'Remarks', 'Weekly', 'Weekly'], 'exact weekly-sheet header');
 const rows = M.sheetRows(withEdits.routes);

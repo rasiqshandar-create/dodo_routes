@@ -199,10 +199,11 @@
     var edits = options.edits || {};
     var routeAdj = options.routeAdj || {};
 
-    var byRef = {};
+    var byRef = {}, byDigits = {};
     (retoolRows || []).forEach(function (r) {
       var k = normRef(r.ref);
       if (k) (byRef[k] = byRef[k] || []).push(r);
+      if (/^#?\d+$/.test(k)) { var d = k.replace(/^#?0*/, ''); (byDigits[d] = byDigits[d] || []).push(r); }
     });
 
     var routes = [], routeById = {}, unmatched = [], warnings = [];
@@ -231,6 +232,8 @@
         var cands = byRef[k];
         if (!cands && k.charAt(0) === '#') cands = byRef[k.slice(1)];
         if (!cands && k.charAt(0) !== '#') cands = byRef['#' + k];
+        // Excel drops leading zeros (000101779 → 101779) when a CSV is opened and re-saved.
+        if (!cands && /^#?\d+$/.test(k)) cands = byDigits[k.replace(/^#?0*/, '')];
         var r = pickRetool(cands, route.agentName);
         if (!r) { route.ordersByRef[k] = null; return; }
         var e = edits[route.routeId + '|' + k] || {};

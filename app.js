@@ -15,7 +15,7 @@
     try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
   }
   function save(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage full or blocked */ }
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; /* storage full or blocked */ }
   }
 
   var settings = Object.assign({ scriptUrl: '', token: '', pricing: {}, theme: '', name: '', live: true }, load(LS.settings, {}));
@@ -44,7 +44,15 @@
   var gbp = P.fmt;
   var timers = {};
   function debounce(k, fn, ms) { clearTimeout(timers[k]); timers[k] = setTimeout(fn, ms || 250); }
-  function persist() { debounce('s', function () { save(LS.session, S); }); }
+  var warnedStorage = false;
+  function persist() {
+    debounce('s', function () {
+      if (!save(LS.session, S) && !warnedStorage) {
+        warnedStorage = true;
+        toast(liveOn() ? 'These files are too big to keep on this laptop, but they are safe in the team workspace.' : 'These files are too big to keep on this laptop. Keep this tab open until you have printed and sent.', '', 9000);
+      }
+    });
+  }
   function toast(html, kind, ms) {
     var el = document.createElement('div');
     el.className = 'toast ' + (kind || '');
@@ -137,12 +145,28 @@
     pushFile(kind, S[kind]);
     render();
   }
+  // Excel can save CSVs as UTF-16 ("Unicode text") or Windows-1252, which would garble £ and names.
+  function decodeBytes(buf) {
+    var b = new Uint8Array(buf);
+    try {
+      if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(b.subarray(2));
+      if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(b.subarray(2));
+      return new TextDecoder('utf-8', { fatal: true }).decode(b);
+    } catch (e) {
+      try { return new TextDecoder('windows-1252').decode(b); } catch (e2) { return new TextDecoder().decode(b); }
+    }
+  }
   function readFiles(files, zone) {
     Array.prototype.slice.call(files).forEach(function (file) {
+      if (file.size > 25 * 1024 * 1024) { toast(esc(file.name) + ' is too big (over 25 MB). Export just today\'s data.', 'bad', 8000); return; }
       var r = new FileReader();
-      r.onload = function () { loadText(String(r.result), file.name, files.length > 1 ? '' : zone); };
+      r.onload = function () {
+        var text;
+        try { text = typeof TextDecoder !== 'undefined' ? decodeBytes(r.result) : String(r.result); } catch (e) { text = ''; }
+        loadText(text, file.name, files.length > 1 ? '' : zone);
+      };
       r.onerror = function () { toast('Could not read ' + esc(file.name) + '.', 'bad'); };
-      r.readAsText(file);
+      r.readAsArrayBuffer(file);
     });
   }
   function ready() { return S.tookan.rows.length && S.retool.rows.length; }
@@ -494,18 +518,25 @@
       live.state = 'on';
       live.failures = 0;
     }).catch(function (e) {
+      // Never throw work away: an outage, a quota page or a rejected token all keep the change queued
+      // and retry. Tell the person once per distinct problem, not on every retry.
       live.failures++;
       live.state = 'error';
-      if (e.fatal) {
-        toast('Team sync stopped: ' + esc(e.message), 'bad', 8000);
-        live.pending = live.pending.slice(batch.length);
-        save(LS.pending, live.pending);
+      var msg = !e.fatal ? 'Can\'t reach the team workspace right now.' :
+        /token/i.test(e.message) ? 'The team connection has changed. Ask Rasiq for the new site version.' :
+        /Unknown action/i.test(e.message) ? 'The Google Sheet script needs updating (ask Rasiq).' : e.message;
+      if (msg !== live.lastError) {
+        live.lastError = msg;
+        toast('Team sync paused: ' + esc(msg) + ' Your changes are kept and will sync automatically.', 'bad', 9000);
       }
     }).finally(function () {
       live.sending = false;
       renderLive();
-      if (live.pending.length && live.failures < 3) setTimeout(flushLive, live.failures ? 2000 * live.failures : 0);
-      else pollLive(true);
+      if (!live.pending.length) { live.lastError = ''; pollLive(true); return; }
+      // 0 s, 2 s, 4 s, 8 s … capped at 30 s
+      var wait = live.failures ? Math.min(30000, 1000 * Math.pow(2, live.failures)) : 0;
+      clearTimeout(live.retryTimer);
+      live.retryTimer = setTimeout(flushLive, wait);
     });
   }
 
@@ -914,7 +945,7 @@
       toast('Settings saved.', 'ok', 2000);
     });
 
-    window.addEventListener('online', function () { render(); processQueue(); flushLive(); pollLive(true); });
+    window.addEventListener('online', function () { render(); processQueue(); live.failures = 0; clearTimeout(live.retryTimer); flushLive(); pollLive(true); });
     window.addEventListener('offline', function () { render(); });
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) save(LS.session, S); else { processQueue(); pollLive(true); }
