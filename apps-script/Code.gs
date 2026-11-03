@@ -13,6 +13,14 @@
  *   ping   → { ok, spreadsheetName, spreadsheetUrl }
  *   check  → { ok, exists, url, nextVersionName }
  *   upload → { ok, tabName, url, mode }   mode: "create" | "update" | "version"
+ *
+ * Live shared workspace (2–3 people working on the same day at once):
+ *   live.get     { since, filesSince, name, clientId } → changes since that version + who is online
+ *   live.patch   { ops: [{ type: 'edit'|'adj'|'map', key|kind, field, value }], name }
+ *   live.setFile { kind: 'tookan'|'retool', file: { fileName, headers, rows, mapping }, name }
+ *   live.clear   { name }
+ * State lives in a hidden "_live" tab of the spreadsheet; the version number is cached
+ * so the frequent "anything new?" polls don't touch the sheet.
  */
 
 // "Dodo Routes" spreadsheet. A Script property SPREADSHEET_ID overrides this.
@@ -61,6 +69,7 @@ function doPost(e) {
     if (req.token !== token) return json_({ ok: false, error: 'Invalid upload token' });
 
     var ss = getSpreadsheet_();
+    if (String(req.action).indexOf('live.') === 0) return json_(live_(ss, req));
     if (req.action === 'ping') {
       return json_({ ok: true, spreadsheetName: ss.getName(), spreadsheetUrl: ss.getUrl() });
     }
@@ -91,6 +100,118 @@ function doPost(e) {
     return json_({ ok: false, error: 'Unknown action: ' + req.action });
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+// ---------- live shared workspace ----------
+var LIVE_TAB = '_live';
+var LIVE_CHUNK = 40000;          // characters per cell (Sheets allows 50,000)
+var PRESENCE_SECONDS = 30;
+
+function liveSheet_(ss) {
+  var sh = ss.getSheetByName(LIVE_TAB);
+  if (!sh) { sh = ss.insertSheet(LIVE_TAB); sh.hideSheet(); }
+  return sh;
+}
+// Column 1 = files JSON, column 2 = state JSON, split across rows. A leading apostrophe
+// keeps every chunk stored as plain text (never parsed as a number or formula).
+function readCol_(sh, col) {
+  var n = sh.getLastRow();
+  if (!n) return null;
+  var text = sh.getRange(1, col, n, 1).getValues().map(function (r) { return String(r[0]); }).join('');
+  return text ? JSON.parse(text) : null;
+}
+function writeCol_(sh, col, obj) {
+  var text = JSON.stringify(obj), chunks = [];
+  for (var i = 0; i < text.length; i += LIVE_CHUNK) chunks.push(["'" + text.slice(i, i + LIVE_CHUNK)]);
+  var old = sh.getLastRow();
+  if (old) sh.getRange(1, col, old, 1).clearContent();
+  if (chunks.length) sh.getRange(1, col, chunks.length, 1).setValues(chunks);
+}
+function emptyState_() {
+  return { version: 0, filesVersion: 0, edits: {}, editMeta: {}, routeAdj: {}, adjMeta: {}, mapping: { tookan: {}, retool: {} }, activity: [] };
+}
+function readState_(sh) { return Object.assign(emptyState_(), readCol_(sh, 2) || {}); }
+function cacheVersions_(st) {
+  CacheService.getScriptCache().put('live:ver', st.version + '|' + st.filesVersion, 21600);
+}
+function touchPresence_(name, clientId) {
+  var cache = CacheService.getScriptCache();
+  var p = {};
+  try { p = JSON.parse(cache.get('live:presence') || '{}'); } catch (e) { p = {}; }
+  var now = Date.now();
+  if (clientId) p[clientId] = { name: String(name || 'Someone').slice(0, 40), at: now };
+  Object.keys(p).forEach(function (k) { if (now - p[k].at > PRESENCE_SECONDS * 1000) delete p[k]; });
+  cache.put('live:presence', JSON.stringify(p), 600);
+  return Object.keys(p).map(function (k) { return { id: k, name: p[k].name }; });
+}
+function logActivity_(st, name, text) {
+  st.activity.unshift({ by: String(name || 'Someone').slice(0, 40), at: Date.now(), text: text });
+  st.activity = st.activity.slice(0, 30);
+}
+
+function live_(ss, req) {
+  var sh = liveSheet_(ss);
+  var name = req.name || 'Someone';
+  if (req.action === 'live.get') {
+    var presence = touchPresence_(name, req.clientId);
+    var ver = CacheService.getScriptCache().get('live:ver');
+    if (ver && ver === req.since + '|' + req.filesSince) {
+      return { ok: true, unchanged: true, version: Number(req.since), filesVersion: Number(req.filesSince), presence: presence };
+    }
+    var st = readState_(sh);
+    cacheVersions_(st);
+    var out = { ok: true, version: st.version, filesVersion: st.filesVersion, state: st, presence: presence };
+    if (String(st.filesVersion) !== String(req.filesSince)) out.files = readCol_(sh, 1) || {};
+    return out;
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var st2 = readState_(sh);
+    var now = Date.now();
+    if (req.action === 'live.patch') {
+      (req.ops || []).forEach(function (op) {
+        var meta = { by: name, at: now };
+        if (op.type === 'edit' || op.type === 'adj') {
+          var bag = op.type === 'edit' ? st2.edits : st2.routeAdj;
+          var metas = op.type === 'edit' ? st2.editMeta : st2.adjMeta;
+          bag[op.key] = bag[op.key] || {};
+          if (op.value === null || op.value === '') delete bag[op.key][op.field]; else bag[op.key][op.field] = op.value;
+          metas[op.key + '.' + op.field] = meta;
+        } else if (op.type === 'map' && (op.kind === 'tookan' || op.kind === 'retool')) {
+          st2.mapping[op.kind][op.field] = op.value;
+        }
+      });
+      if (req.activity) logActivity_(st2, name, String(req.activity).slice(0, 140));
+    } else if (req.action === 'live.setFile') {
+      if (req.kind !== 'tookan' && req.kind !== 'retool') return { ok: false, error: 'Unknown file kind' };
+      var files = readCol_(sh, 1) || {};
+      var f = req.file || {};
+      files[req.kind] = { fileName: f.fileName, headers: f.headers || [], rows: f.rows || [], by: name, at: now };
+      st2.mapping[req.kind] = f.mapping || {};
+      if (req.kind === 'tookan') { st2.edits = {}; st2.editMeta = {}; st2.routeAdj = {}; st2.adjMeta = {}; }
+      writeCol_(sh, 1, files);
+      st2.filesVersion++;
+      logActivity_(st2, name, 'uploaded the ' + (req.kind === 'tookan' ? 'Tookan route' : 'Retool order') + ' export (' + f.fileName + ')');
+    } else if (req.action === 'live.clear') {
+      writeCol_(sh, 1, {});
+      var keep = st2;
+      st2 = emptyState_();
+      st2.version = keep.version;
+      st2.filesVersion = keep.filesVersion + 1;
+      logActivity_(st2, name, 'cleared the workspace');
+    } else {
+      return { ok: false, error: 'Unknown action: ' + req.action };
+    }
+    st2.version++;
+    writeCol_(sh, 2, st2);
+    SpreadsheetApp.flush();
+    cacheVersions_(st2);
+    return { ok: true, version: st2.version, filesVersion: st2.filesVersion };
+  } finally {
+    lock.releaseLock();
   }
 }
 

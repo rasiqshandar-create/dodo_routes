@@ -1,8 +1,28 @@
 # Dodo Routes
 
-A standalone web app that turns the day's **Tookan route export** and **Retool order export** into **one route sheet per driver**. Each sheet follows the exact Tookan stop sequence and is enriched with parcels, delivery instructions and driver pay from Retool. Print them all as **one PDF** (one route per page) and upload everything to Google Sheets in one click. It runs fully in the browser (no server, no dependencies) and works offline.
+A web app for Dodo Delivery × Evermile. It turns the day's **Tookan route export** and **Retool order export** into **one branded route sheet per driver**. Each sheet follows the exact Tookan stop sequence, with parcels, instructions and driver pay from Retool. Print them all as **one PDF** (one route per page), send the day to Google Sheets in one click, and **work on it live with 2–3 teammates**. It runs in the browser and works offline.
 
-**Flow:** drop the Tookan CSV + the Retool CSV → check the route sheets and the *Checks for Ops* panel → **Print / Save PDF** for drivers → **Upload to Google Sheets**.
+**Three steps:** ① upload the two exports → ② check the drivers and pay (the *Checks* box tells you if anything needs attention) → ③ **Print driver sheets** and **Send to Google Sheets**.
+
+## Working together (live)
+
+When the tool is connected to the Dodo Routes sheet (via the one-click connect link), everyone using that link shares **one live workspace**:
+
+- **Files:** one person uploads the files and everyone sees them.
+- **Edits:** extras, remarks, route deductions and column matching appear on everyone's screen within about 4 seconds, with a note of who changed what (e.g. *"Ravish set extra £3.00 on #30533"*). Driver tiles show *"Edited by …"*.
+- **Presence:** the header shows who is in (avatars, *"Live · 3 here"*).
+- **Simultaneous edits:** these merge field by field, so two people changing different orders never overwrite each other. If two people change the *same* box, the later change wins for everyone.
+- **Typing is never interrupted:** a teammate's update keeps your cursor and half-typed text.
+- **Offline:** changes made offline are saved on your device and sync when you're back online.
+- **Start a new day (clear)** in the ⋯ menu clears the workspace for everyone.
+
+How it works: the workspace is stored in a hidden `_live` tab of the Dodo Routes spreadsheet, through the same Apps Script that does the Sheets upload. Each open tab checks for changes every 4 seconds (every 20 seconds when the tab is in the background). Those checks answer from a cache, so they're light on the Apps Script quota.
+
+Without a connection, the tool works exactly the same for one person ("Just you" in the header).
+
+## Branding
+
+The header and every printed route sheet carry the **Dodo** logo and **"Delivered with Evermile"**, with a navy rule. The page footer shows the route totals and "Dodo Delivery × Evermile". Logos are in `brand/`.
 
 ## Inputs
 
@@ -85,7 +105,7 @@ The upload creates one tab per delivery date (e.g. `02-Nov-2026`). If the tab ex
 ## One-time setup (about 5 minutes, two parts)
 
 ### A. Host the tool (Netlify)
-Live at **https://dodo-delivery-routes.netlify.app/**. To update it, drag a zip of the site files (`index.html app.js merge.js pricing.js sample-data.js sw.js manifest.webmanifest icon.svg`) onto the site's **Deploys** page in Netlify. If you move hosts, change `APP_URL` at the top of `apps-script/Code.gs`.
+Live at **https://dodo-delivery-routes.netlify.app/**. To update it, drag a zip of the site files (`index.html app.js merge.js pricing.js sample-data.js sw.js manifest.webmanifest icon.svg brand/`) onto the site's **Deploys** page in Netlify. If you move hosts, change `APP_URL` at the top of `apps-script/Code.gs`.
 
 ### B. Connect the Dodo Routes sheet
 1. Open **Dodo Routes**: <https://docs.google.com/spreadsheets/d/1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk/edit>
@@ -105,21 +125,23 @@ Once opened over https, the app is cached for offline use. In Chrome/Edge you ca
 ## Data and privacy
 
 - Both CSVs are processed in the browser and never sent to a server.
-- The only outbound call is to **your** Apps Script when you click Upload.
+- The only outbound calls go to **your** Apps Script: the Upload, and (when connected) the live workspace sync.
+- With live sharing on, the day's two exports (including customer names, addresses and phones) are stored in the hidden `_live` tab of the Dodo Routes spreadsheet, so only people with access to that spreadsheet or the connect link can see them. **Start a new day (clear)** removes them.
 - Session data, queue and history live in the browser's local storage on that device.
 - The bundled sample (`samples/`, `sample-data.js`) is fictional. Don't commit real exports: they contain customer names, addresses and phone numbers.
 
 ## Files
 
 ```
-index.html             UI (two upload zones, route sheets, print layout)
-app.js                 app logic (upload, rendering, PDF/print, queue, Sheets upload)
+index.html             UI (steps, upload boxes, driver tiles, route sheets, print layout)
+brand/                 Dodo and Evermile logos
+app.js                 app logic (upload, rendering, PDF/print, live team sync, Sheets upload)
 merge.js               Tookan ⨝ Retool join, sequencing, pay (shared with tests)
 pricing.js             Dodo card (fallback pricing)
 sample-data.js         fictional two-file sample (embedded for "Try with sample data")
 samples/               the same sample as CSV files
 sw.js                  offline cache
 manifest.webmanifest   installable app metadata
-apps-script/Code.gs    Google Sheets connector
+apps-script/Code.gs    Google Sheets connector + live shared workspace
 tests/                 npm test  (pricing + merge; real-file acceptance via DODO_TOOKAN / DODO_RETOOL)
 ```

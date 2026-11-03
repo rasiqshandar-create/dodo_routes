@@ -1,5 +1,33 @@
 # Dodo Routes: Release Notes
 
+## Version 3.0 · 3 November 2026: Simpler screens, branded sheets, live teamwork
+
+**Simpler to use**
+- **A 1-2-3 guide across the top:** *Upload the 2 exports → Check drivers & pay → Print sheets & send.* Each step ticks off as you go.
+- **One plain sentence summarises the day:** *"Monday 2 Nov 2026 · 4 drivers · 72 stops · 53 parcels · £415.27 driver pay"*.
+- **A Checks box says what to do:** green *"Every order matched. Ready to print"*, or red/amber *"2 things to check before printing"* with the list. Pay differences are tucked away as notes for Ops.
+- **Driver tiles** show each driver's pay and **✓ Ready / ⚠ to check**. Click one to open that driver's sheet; "Show all" displays every sheet.
+- **One obvious main button: Print driver sheets.** *Send to Google Sheets* and *Download CSV* sit next to it. Everything rarely needed (replace files, uploads, settings, start a new day) is in the **⋯** menu.
+
+**Branded for Dodo × Evermile**
+- **Header:** the app header shows both logos.
+- **Printed sheets:** every printed route sheet has the Dodo logo, "Dodo Delivery · Driver route sheet", **"Delivered with Evermile"**, and a footer with the route totals.
+
+**Live with your team**
+- **Shared workspace:** 2–3 people can work on the same day at once. Uploads, extras, remarks and deductions appear for everyone within about 4 seconds, with "who changed what" notes and avatars of who's online.
+- **Safe editing:** edits to different orders never clash. Your typing isn't interrupted, and offline changes sync when you reconnect.
+
+**Fixed**
+- **A file pick could be lost:** if a teammate's update arrived while you were picking a file, the file was silently dropped. Fixed.
+- **Totals row on its own page:** a route's totals row could spill onto a page by itself. Totals are now in the sheet footer.
+
+**QA before release:** 138 pricing + 61 merge checks, 55 single-user browser checks, 27 three-teammate live checks, and 13 Apps Script checks (run against a mock Google Sheet). All pass.
+
+**To go live**
+1. **Apps Script:** paste the new `Code.gs`, then **Deploy → Manage deployments → Edit → Version: New version → Deploy**. Live teamwork needs this.
+2. **Netlify:** drag the new zip onto **Deploys**. It now includes the `brand/` folder.
+3. **Everyone:** open the connect link once and enter their name.
+
 ## Version 2.1 · 2 November 2026: Weekly-sheet export format
 
 - **CSV download and Google Sheets upload now match the *Dodo Deliveries Data* weekly sheet exactly:**
