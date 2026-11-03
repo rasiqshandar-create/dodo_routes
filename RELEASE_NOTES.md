@@ -103,7 +103,7 @@ Google Sheets upload (update / new version prompt, direct link), offline queue w
 - **The "per extra drop" pricing option.**
 
 ### What to redeploy
-1. **Netlify:** upload the new site zip to *dodo-delivery-routes* → **Deploys** (drag and drop). Files: `index.html`, `app.js`, `merge.js` *(new)*, `pricing.js`, `sample-data.js`, `sw.js`, `manifest.webmanifest`, `icon.svg`. Open the site once online so the offline copy updates.
+1. **Netlify:** upload the new site zip to *dodo-routes-3vpx20tnea* → **Deploys** (drag and drop). Files: `index.html`, `app.js`, `merge.js` *(new)*, `pricing.js`, `sample-data.js`, `sw.js`, `manifest.webmanifest`, `icon.svg`. Open the site once online so the offline copy updates.
 2. **Apps Script** (Dodo Routes sheet → Extensions → Apps Script): replace `Code.gs`. It now writes the new sections and its connect link points to Netlify. Then go to **Deploy → Manage deployments → ✎ Edit → Version: New version → Deploy**. The Web App URL and token stay the same, so nobody needs to reconnect.
 3. If you haven't connected yet: run **`setup`** once and use the connect link from the execution log.
 

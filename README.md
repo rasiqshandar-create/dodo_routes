@@ -105,7 +105,7 @@ The upload creates one tab per delivery date (e.g. `02-Nov-2026`). If the tab ex
 ## One-time setup (about 5 minutes, two parts)
 
 ### A. Host the tool (Netlify)
-Live at **https://dodo-delivery-routes.netlify.app/**. To update it, drag a zip of the site files (`index.html config.js app.js merge.js pricing.js sample-data.js sw.js manifest.webmanifest icon.svg brand/`) onto the site's **Deploys** page in Netlify. If you move hosts, change `APP_URL` at the top of `apps-script/Code.gs`.
+Live at **https://dodo-routes-3vpx20tnea.netlify.app/**. To update it, drag a zip of the site files (`index.html config.js app.js merge.js pricing.js sample-data.js sw.js manifest.webmanifest icon.svg brand/`) onto the site's **Deploys** page in Netlify. If you move hosts, change `APP_URL` at the top of `apps-script/Code.gs`.
 
 ### B. Connect the Dodo Routes sheet
 1. Open **Dodo Routes**: <https://docs.google.com/spreadsheets/d/1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk/edit>

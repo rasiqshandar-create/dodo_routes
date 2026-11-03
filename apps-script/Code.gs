@@ -30,7 +30,7 @@ var HEADER_BG = '#1f3a5f';
 var SECTION_BG = '#e8eef6';
 
 // Where the tool is hosted (Netlify). The connect link opens this with the settings attached.
-var APP_URL = 'https://dodo-delivery-routes.netlify.app/';
+var APP_URL = 'https://dodo-routes-3vpx20tnea.netlify.app/';
 
 /**
  * Run once from the Apps Script editor AFTER deploying the web app (select "setup" → Run).
