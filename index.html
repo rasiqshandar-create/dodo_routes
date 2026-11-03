@@ -191,7 +191,7 @@ details.cols > summary { cursor: pointer; color: var(--muted); font-size: 13px; 
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 .badge.bad { background: var(--bad-soft); color: var(--bad); }
 .nowrap { white-space: nowrap; }
-@media (min-width: 1200px) {
+@media screen and (min-width: 1200px) {
   .tbl.route { table-layout: fixed; }
   .c-seq { width: 3.5%; } .c-type { width: 8%; } .c-id { width: 9%; } .c-name { width: 11.5%; } .c-addr { width: 20.5%; }
   .c-phone { width: 10.5%; } .c-time { width: 6.5%; } .c-parcels { width: 6%; } .c-instr { width: 10.5%; } .c-pay { width: 7%; } .c-sig { width: 7%; }
@@ -237,7 +237,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
 .toast.team { background: var(--purple); }
 
 /* Mobile */
-@media (max-width: 760px) {
+@media screen and (max-width: 760px) {
   .zones { grid-template-columns: 1fr; }
   .app-title { display: none; }
   .logos img { height: 18px; }
@@ -265,6 +265,19 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
 /* Print: one PDF, one route per page, Dodo × Evermile branding */
 @page { size: A4 landscape; margin: 10mm; }
 @media print {
+  /* Only the route sheets print: hides anything else on the page, incl. badges injected by the host. */
+  body > :not(main) { display: none !important; }
+  /* Always a real table on paper, whatever the window width was. */
+  .tbl.route { display: table !important; }
+  .tbl.route thead { display: table-header-group !important; }
+  .tbl.route tbody { display: table-row-group !important; }
+  .tbl.route tr { display: table-row !important; padding: 0 !important; }
+  .tbl.route th, .tbl.route td { display: table-cell !important; position: static !important; min-height: 0 !important; }
+  .tbl.route td::before { content: none !important; }
+  .tbl.route .sig { display: table-cell !important; }
+  .sh-brand .ttl .b, .sh-brand .pw, .sh-brand .pw span { display: revert !important; }
+  .sh-brand .pw { display: flex !important; }
+  .sh-pay { justify-items: end !important; margin-left: auto !important; }
   header.top, .actionbar, .toasts, .noprint, #stepUpload, .summary-card, .callout, .dgrid, h2.sec-h, .viewall { display: none !important; }
   :root { color-scheme: light; --text: #000; --muted: #444; --border: #bbb; --surface: #fff; --surface-2: #f2f2f2; }
   body { background: #fff; color: #000; font-size: 10.5pt; }
