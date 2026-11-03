@@ -749,6 +749,11 @@
   function consumeConnectLink() {
     var m = /[#&]connect=([A-Za-z0-9_\-=]+)/.exec(location.hash);
     if (!m) return;
+    // The site's built-in connection always wins: an old link must not replace it with a stale token.
+    if (managed) {
+      if (window.history && window.history.replaceState) window.history.replaceState(null, '', location.pathname + location.search);
+      return;
+    }
     try {
       var cfg = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')));
       if (cfg.u && cfg.t) {
