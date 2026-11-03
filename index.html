@@ -395,8 +395,11 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
       <label class="field">Your name (shown to teammates)<input id="sName"></label>
       <label class="row small"><input type="checkbox" id="sLive"> Share this workspace live with my team</label>
       <h4>Google Sheets connection</h4>
-      <label class="field">Apps Script Web App URL<input id="sUrl" placeholder="https://script.google.com/macros/s/…/exec"></label>
-      <label class="field">Upload token<input id="sToken" type="password" autocomplete="off"></label>
+      <p class="small hidden" id="connManaged" style="margin:0">✓ Connected to the team's Google Sheet automatically. Nothing to set up.</p>
+      <div id="connFields" style="display:grid;gap:12px">
+        <label class="field">Apps Script Web App URL<input id="sUrl" placeholder="https://script.google.com/macros/s/…/exec"></label>
+        <label class="field">Upload token<input id="sToken" type="password" autocomplete="off"></label>
+      </div>
       <div class="row"><button class="btn small" id="btnTest" type="button">Test connection</button><span id="testResult" class="small"></span></div>
       <h4>Dodo card (only used when Retool has no DP cost)</h4>
       <p class="small muted" style="margin:0" id="formulaText"></p>
@@ -439,6 +442,7 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
   </div>
 </dialog>
 
+<script src="config.js"></script>
 <script src="pricing.js"></script>
 <script src="merge.js"></script>
 <script src="sample-data.js"></script>

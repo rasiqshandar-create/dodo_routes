@@ -71,6 +71,10 @@
   // Workspace "/a/<domain>/macros/" URLs can redirect to a Google login, which the browser can't read.
   function cleanScriptUrl(u) { return String(u || '').trim().replace(/\/a\/[^\/]+\/macros\//, '/macros/').replace(/\/dev(\?.*)?$/, '/exec'); }
   settings.scriptUrl = cleanScriptUrl(settings.scriptUrl);
+  // Connection built into the site (config.js) always wins, so a stale saved value can't break anyone.
+  var CFG = window.DODO_CONFIG || {};
+  var managed = !!(CFG.scriptUrl && CFG.token);
+  if (managed) { settings.scriptUrl = cleanScriptUrl(CFG.scriptUrl); settings.token = String(CFG.token).trim(); }
 
   // ---------- dates ----------
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -718,6 +722,8 @@
   function openSettings() {
     $('#sName').value = settings.name || ''; $('#sLive').checked = settings.live !== false;
     $('#sUrl').value = settings.scriptUrl; $('#sToken').value = settings.token;
+    $('#connFields').classList.toggle('hidden', managed);
+    $('#connManaged').classList.toggle('hidden', !managed);
     $('#sBase').value = settings.pricing.base; $('#sPerMile').value = settings.pricing.perMile; $('#sFloor').value = settings.pricing.floor;
     $('#sBand').value = settings.pricing.bandMiles;
     $('#sTheme').value = settings.theme || '';
@@ -731,7 +737,7 @@
     var num = function (id, d) { var v = parseFloat($(id).value); return isNaN(v) ? d : v; };
     var D = P.DEFAULT_CONFIG;
     settings.name = $('#sName').value.trim(); settings.live = $('#sLive').checked;
-    settings.scriptUrl = cleanScriptUrl($('#sUrl').value); settings.token = $('#sToken').value.trim();
+    if (!managed) { settings.scriptUrl = cleanScriptUrl($('#sUrl').value); settings.token = $('#sToken').value.trim(); }
     settings.pricing = { base: num('#sBase', D.base), perMile: num('#sPerMile', D.perMile), floor: num('#sFloor', D.floor), bandMiles: num('#sBand', D.bandMiles), extraDropFee: 0 };
     settings.theme = $('#sTheme').value;
   }

@@ -105,7 +105,7 @@ The upload creates one tab per delivery date (e.g. `02-Nov-2026`). If the tab ex
 ## One-time setup (about 5 minutes, two parts)
 
 ### A. Host the tool (Netlify)
-Live at **https://dodo-delivery-routes.netlify.app/**. To update it, drag a zip of the site files (`index.html app.js merge.js pricing.js sample-data.js sw.js manifest.webmanifest icon.svg brand/`) onto the site's **Deploys** page in Netlify. If you move hosts, change `APP_URL` at the top of `apps-script/Code.gs`.
+Live at **https://dodo-delivery-routes.netlify.app/**. To update it, drag a zip of the site files (`index.html config.js app.js merge.js pricing.js sample-data.js sw.js manifest.webmanifest icon.svg brand/`) onto the site's **Deploys** page in Netlify. If you move hosts, change `APP_URL` at the top of `apps-script/Code.gs`.
 
 ### B. Connect the Dodo Routes sheet
 1. Open **Dodo Routes**: <https://docs.google.com/spreadsheets/d/1qvQiAPmlhssIxpGLTEWQhyGm78kYOgcUFHeZ_3BlwXk/edit>
@@ -117,6 +117,11 @@ Live at **https://dodo-delivery-routes.netlify.app/**. To update it, drag a zip 
 `setup()` creates the secret upload token automatically, so only people with the link can write to the sheet. If you change `Code.gs` later, use **Deploy → Manage deployments → Edit → Version: New version** so the URL stays the same. To revoke access, delete the `UPLOAD_TOKEN` script property and run `setup` again.
 
 You can also connect by hand: **Settings** in the tool → paste the Web app URL and token → **Test connection**.
+
+### Zero-setup for the team (optional)
+Fill in `config.js` with the Web App URL (`…/macros/s/…/exec`) and the `UPLOAD_TOKEN`, then deploy. Everyone who opens the site is connected automatically: they only type their name once, and Settings no longer shows the URL or token. A wrong value saved in someone's browser is overridden.
+
+**Trade-off:** anyone who can open the site can then use the workspace, which holds customer data. Use an unguessable Netlify site name and/or Netlify password protection. Keep `config.js` empty in the git repo and fill it only in the deploy zip.
 
 ## Offline use
 
@@ -134,6 +139,7 @@ Once opened over https, the app is cached for offline use. In Chrome/Edge you ca
 
 ```
 index.html             UI (steps, upload boxes, driver tiles, route sheets, print layout)
+config.js              optional built-in team connection (empty in git)
 brand/                 Dodo and Evermile logos
 app.js                 app logic (upload, rendering, PDF/print, live team sync, Sheets upload)
 merge.js               Tookan ⨝ Retool join, sequencing, pay (shared with tests)
