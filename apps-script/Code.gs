@@ -44,7 +44,8 @@ function setup() {
     props.setProperty('UPLOAD_TOKEN', token);
   }
   var ss = getSpreadsheet_();
-  var url = ScriptApp.getService().getUrl();
+  // Workspace accounts get a /a/<domain>/ URL, which can force a Google login and block the tool.
+  var url = String(ScriptApp.getService().getUrl() || '').replace(/\/a\/[^\/]+\/macros\//, '/macros/');
   if (!url) {
     Logger.log('Deploy the web app first (Deploy → New deployment → Web app), then run setup again.');
     return;

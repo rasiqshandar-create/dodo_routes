@@ -68,6 +68,10 @@
     return Math.round(s / 3600) + ' h ago';
   }
 
+  // Workspace "/a/<domain>/macros/" URLs can redirect to a Google login, which the browser can't read.
+  function cleanScriptUrl(u) { return String(u || '').trim().replace(/\/a\/[^\/]+\/macros\//, '/macros/').replace(/\/dev(\?.*)?$/, '/exec'); }
+  settings.scriptUrl = cleanScriptUrl(settings.scriptUrl);
+
   // ---------- dates ----------
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -727,7 +731,7 @@
     var num = function (id, d) { var v = parseFloat($(id).value); return isNaN(v) ? d : v; };
     var D = P.DEFAULT_CONFIG;
     settings.name = $('#sName').value.trim(); settings.live = $('#sLive').checked;
-    settings.scriptUrl = $('#sUrl').value.trim(); settings.token = $('#sToken').value.trim();
+    settings.scriptUrl = cleanScriptUrl($('#sUrl').value); settings.token = $('#sToken').value.trim();
     settings.pricing = { base: num('#sBase', D.base), perMile: num('#sPerMile', D.perMile), floor: num('#sFloor', D.floor), bandMiles: num('#sBand', D.bandMiles), extraDropFee: 0 };
     settings.theme = $('#sTheme').value;
   }
@@ -742,7 +746,7 @@
     try {
       var cfg = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')));
       if (cfg.u && cfg.t) {
-        settings.scriptUrl = cfg.u; settings.token = cfg.t; settings.live = true;
+        settings.scriptUrl = cleanScriptUrl(cfg.u); settings.token = cfg.t; settings.live = true;
         save(LS.settings, settings);
         setTimeout(function () { toast('✓ Connected to Google Sheets and your team. Bookmark this page.', 'ok', 6000); }, 50);
       }
@@ -881,7 +885,10 @@
       out.textContent = 'Testing…';
       api({ action: 'ping' }).then(function (r) {
         out.innerHTML = r.ok ? '<span style="color:var(--ok)">✓ Connected to “' + esc(r.spreadsheetName) + '”</span>' : '<span style="color:var(--bad)">' + esc(r.error) + '</span>';
-      }).catch(function (e) { out.innerHTML = '<span style="color:var(--bad)">' + esc(e.message || 'Could not connect') + '</span>'; });
+      }).catch(function (e) {
+        var msg = /fetch|network/i.test(e.message || '') ? 'Couldn\'t reach the script. In Apps Script, set Deploy → Manage deployments → Who has access to "Anyone", and use the /exec URL.' : (e.message || 'Could not connect');
+        out.innerHTML = '<span style="color:var(--bad)">' + esc(msg) + '</span>';
+      });
     });
     $('#dlgSettings').addEventListener('close', function () {
       if ($('#dlgSettings').returnValue !== 'save') return;
