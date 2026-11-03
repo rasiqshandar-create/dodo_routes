@@ -1,0 +1,24 @@
+Hi team 👋
+
+From today we make the driver route sheets with *Dodo Routes*. It replaces the Tookan PDF and the old sheet. Drivers get ONE PDF with their stops in order, parcels, instructions and pay.
+
+🔗 *Link:* https://dodo-routes-3vpx20tnea.netlify.app  (bookmark it, keep it inside the team)
+
+*Every day, 6 steps (about 5 minutes):*
+1️⃣ Open the link. First time only: type your name and press *Continue*.
+2️⃣ Download 2 files: the *route export* CSV from *Tookan*, and the *order export* CSV from *Retool*.
+3️⃣ Drag each file onto its box. Both boxes turn green ✓.
+4️⃣ Read the coloured box:
+   🟢 *Green* = all good, carry on.
+   🔴 *Red* = STOP. A stop may be missing. Fix what it lists before printing (the SOP explains each message).
+5️⃣ Extras? Click the driver, then *Adjust pay*. Type the £ and a *reason*. Deductions use a minus: *-2* takes £2 off.
+6️⃣ Press *Print driver sheets*, then *Save as PDF* (untick "Headers and footers") and send to drivers. Then press *Send to Google Sheets*.
+
+*Good to know*
+• We all see the same screen live. Only ONE person needs to upload the files.
+• Don't edit the same driver at the same time as someone else (the last change wins).
+• ⚠️ *Start a new day* (⋯ menu) clears it for EVERYONE. Only press it at the very end.
+• Page looks odd? Press *Ctrl+Shift+R* (Mac: *Cmd+Shift+R*).
+
+📄 The step-by-step guide with pictures (SOP PDF) and a 10-second animation are attached.
+Stuck? Screenshot it and message me.
