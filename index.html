@@ -36,6 +36,8 @@ a { color: var(--accent); }
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
+.slot { white-space: nowrap; }
+
 .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
@@ -194,8 +196,8 @@ details.cols > summary { cursor: pointer; color: var(--muted); font-size: 13px; 
 .nowrap { white-space: nowrap; }
 @media screen and (min-width: 1200px) {
   .tbl.route { table-layout: fixed; }
-  .c-seq { width: 3.5%; } .c-type { width: 8%; } .c-id { width: 9%; } .c-name { width: 11.5%; } .c-addr { width: 20.5%; }
-  .c-phone { width: 10.5%; } .c-time { width: 6.5%; } .c-parcels { width: 6%; } .c-instr { width: 10.5%; } .c-pay { width: 7%; } .c-sig { width: 7%; }
+  .c-seq { width: 3.5%; } .c-type { width: 8%; } .c-id { width: 9%; } .c-name { width: 11.5%; } .c-addr { width: 19%; }
+  .c-phone { width: 10.5%; } .c-time { width: 8%; } .c-parcels { width: 6%; } .c-instr { width: 10.5%; } .c-pay { width: 7%; } .c-sig { width: 7%; }
   .tbl.route td { overflow-wrap: anywhere; }
   .tbl.route th { white-space: normal; }
 }
@@ -299,8 +301,8 @@ dialog h4 { margin: 6px 0 0; font-size: 13.5px; }
   .tbl.route tfoot { display: table-row-group; }
   .tbl.route tr { break-inside: avoid; page-break-inside: avoid; }
   .tbl.route tr.pu td { background: #fff; }
-  .c-seq { width: 3.5%; } .c-type { width: 7.5%; } .c-id { width: 9%; } .c-name { width: 11.5%; } .c-addr { width: 22%; }
-  .c-phone { width: 11.5%; } .c-time { width: 6.5%; } .c-parcels { width: 6%; } .c-instr { width: 10.5%; } .c-pay { width: 5.5%; } .c-sig { width: 6.5%; }
+  .c-seq { width: 3.5%; } .c-type { width: 7.5%; } .c-id { width: 9%; } .c-name { width: 11.5%; } .c-addr { width: 20.5%; }
+  .c-phone { width: 11.5%; } .c-time { width: 8%; } .c-parcels { width: 6%; } .c-instr { width: 10.5%; } .c-pay { width: 5.5%; } .c-sig { width: 6.5%; }
   .stype { padding: 0; background: none !important; color: #000 !important; font-size: 9pt; }
   .sh-foot { display: flex; justify-content: space-between; gap: 12px; font-size: 8.5pt; color: #333; margin-top: 6px; }
   .tbl.route tfoot { display: none; }

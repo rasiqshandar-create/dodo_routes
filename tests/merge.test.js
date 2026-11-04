@@ -93,6 +93,14 @@ eq(M.build(zT, zR, {}).routes[0].orders[0].dpCost, 14.99, 'leading zeros strippe
 eq(M.build([{ routeId: 'R1', type: 'Delivery', agentName: 'Z', orderId: '00042' }], [{ ref: '42', cost: '10', driver: 'Z' }], {}).routes[0].orders.length, 1, 'zeros on the Tookan side too');
 eq(M.build([{ routeId: 'R1', type: 'Delivery', agentName: 'Z', orderId: 'CS0042' }], [{ ref: 'CS42', cost: '10', driver: 'Z' }], {}).unmatched.length, 1, 'non-numeric refs are not loosened');
 
+// Driver sheet shows the slot, not Tookan's "complete before" time.
+eq(M.slotText('02 Nov 07:00 – 09:00'), '07:00–09:00', 'slot date dropped');
+eq(M.slotText('7:00 am - 9:30 pm'), '07:00–21:30', '12h slot');
+eq(M.slotText('ASAP'), 'ASAP', 'non-time slot kept');
+const sT = [{ routeId: 'R9', type: 'Pick-up', agentName: 'Z', orderId: 'S1', time: '07:00 am' }, { routeId: 'R9', type: 'Delivery', agentName: 'Z', orderId: 'S1', time: '12:00 pm' }, { routeId: 'R9', type: 'Delivery', agentName: 'Z', orderId: 'S2', time: '01:00 pm' }];
+const sR = [{ ref: 'S1', cost: '10', driver: 'Z', pickupSlot: '02 Nov 07:00 – 09:00', deliverySlot: '02 Nov 08:00 – 12:00' }, { ref: 'S2', cost: '10', driver: 'Z' }];
+eq(M.build(sT, sR, {}).routes[0].stops.map(s => s.slot), ['07:00–09:00', '08:00–12:00', '01:00 pm'], 'pickup slot, delivery slot, Tookan time fallback');
+
 // Weekly-sheet export format (CSV + Google Sheets).
 eq(M.SHEET_HEADER, ['S. No.', 'Order ID', 'Agent_Name', 'Merchant', 'Customer Name', 'Delivery Before', 'Actual', 'Delivery', 'OTD', 'Price', 'Refund', 'Driver Cost', 'Remarks', 'Weekly', 'Weekly'], 'exact weekly-sheet header');
 const rows = M.sheetRows(withEdits.routes);
@@ -117,6 +125,7 @@ if (process.env.DODO_TOOKAN && process.env.DODO_RETOOL) {
   eq(f.mismatches, 3, 'per-order mismatches flagged');
   eq(f.stops.every(s => s.parcels === 1), true, 'parcels from Retool');
   eq(real.unmatched.length, 0);
+  eq([f.stops[0].slot, f.stops.find(s => s.type === 'DELIVERY').slot], ['07:00–09:00', '09:00–13:00'], 'real slots on Fahad sheet (PAUL delivery 09:00–13:00)');
   const s = real.routes.find(r => r.routeId === '50656').orders.find(o => o.ref === '000101779');
   eq([s.retoolDriver, s.cancelled], ['Salman Dosri', false], 'duplicate 000101779 resolved to the delivered Salman row');
   const fr = M.sheetRows(real.routes).filter(r => r[2] === 'Fahad Rehman');

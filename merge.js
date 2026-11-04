@@ -168,6 +168,16 @@
     if (/deliver|drop/.test(s)) return 'DELIVERY';
     return s.toUpperCase();
   }
+  // Retool slot "02 Nov 07:00 – 09:00" -> "07:00–09:00" (date dropped: the sheet already shows it).
+  function slotText(v) {
+    v = clean(v); if (!v) return '';
+    var t = v.match(/\b\d{1,2}:\d{2}(\s*[ap]\.?m\.?)?/gi);
+    if (!t) return v;
+    t = t.map(function (x) { var m = /^(\d{1,2}):(\d{2})\s*([ap])?/i.exec(x), h = +m[1];
+      if (m[3]) { if (/p/i.test(m[3]) && h < 12) h += 12; if (/a/i.test(m[3]) && h === 12) h = 0; }
+      return (h < 10 ? '0' : '') + h + ':' + m[2]; });
+    return t.length >= 2 ? t[0] + '–' + t[t.length - 1] : t[0];
+  }
   function fmtDuration(mins) {
     if (mins == null) return '';
     var h = Math.floor(mins / 60), m = Math.round(mins % 60);
@@ -283,7 +293,9 @@
         route.stops.push({
           type: type, ref: clean(t.orderId), order: o, taskId: clean(t.taskId),
           name: clean(t.name), address: clean(t.address).replace(/\s{2,}/g, ' '),
-          phone: fmtPhone(t.phone), phoneTel: phoneDigits(t.phone), time: clean(t.time)
+          phone: fmtPhone(t.phone), phoneTel: phoneDigits(t.phone), time: clean(t.time),
+          // Driver sheet shows the customer/merchant slot; Tookan's single "complete before" time is only a fallback.
+          slot: slotText(type === 'PICKUP' ? o.pickupSlot : o.deliverySlot) || clean(t.time)
         });
       });
       route.stops.forEach(function (s, i) {
@@ -401,7 +413,7 @@
     TOOKAN_FIELDS: TOOKAN_FIELDS, RETOOL_FIELDS: RETOOL_FIELDS,
     parseCSV: parseCSV, detectKind: detectKind, autoMap: autoMap, toObjects: toObjects, clean: clean, build: build,
     normRef: normRef, normName: normName, fmtPhone: fmtPhone, phoneDigits: phoneDigits,
-    parseMoney: parseMoney, serviceType: serviceType, fmtDuration: fmtDuration, pickRetool: pickRetool
+    parseMoney: parseMoney, serviceType: serviceType, fmtDuration: fmtDuration, slotText: slotText, pickRetool: pickRetool
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DodoMerge = api;

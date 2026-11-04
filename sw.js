@@ -1,5 +1,5 @@
 /* Offline support: cache the app shell, serve it when there is no connection. */
-var CACHE = 'dodo-routes-v7';
+var CACHE = 'dodo-routes-v8';
 var SHELL = ['./', 'index.html', 'config.js', 'app.js', 'pricing.js', 'merge.js', 'sample-data.js', 'manifest.webmanifest', 'icon.svg', 'brand/dodo.png', 'brand/evermile.png'];
 
 self.addEventListener('install', function (e) {

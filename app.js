@@ -366,7 +366,7 @@
       '<button class="btn small noprint" data-print="' + esc(r.routeId) + '" type="button">Print this driver</button></div></header>';
 
     h += '<div class="wrap"><table class="tbl route stack"><colgroup><col class="c-seq"><col class="c-type"><col class="c-id"><col class="c-name"><col class="c-addr"><col class="c-phone"><col class="c-time"><col class="c-parcels"><col class="c-instr"><col class="c-pay"><col class="c-sig"></colgroup><thead><tr>' +
-      '<th>Seq</th><th>Service Type</th><th>Order ID</th><th>Customer / Merchant</th><th>Address</th><th>Phone</th><th>Time</th>' +
+      '<th>Seq</th><th>Service Type</th><th>Order ID</th><th>Customer / Merchant</th><th>Address</th><th>Phone</th><th>Slot</th>' +
       '<th class="num">Parcels</th><th>Instructions</th><th class="num">Pay</th><th class="sig">Signature</th></tr></thead><tbody>' +
       r.stops.map(function (s) {
         var o = s.order, pay = '';
@@ -382,7 +382,7 @@
           '<td data-l="Name">' + esc(s.name) + '</td>' +
           '<td data-l="Address">' + esc(s.address) + '</td>' +
           '<td data-l="Phone">' + (s.phone ? '<a class="tel" href="tel:' + esc(s.phoneTel) + '">' + esc(s.phone) + '</a>' : '') + '</td>' +
-          '<td data-l="Time" class="nowrap">' + esc(s.time) + '</td>' +
+          '<td data-l="Slot" class="slot">' + esc(s.slot || s.time) + '</td>' +
           '<td class="num" data-l="Parcels">' + (s.parcels == null ? '' : s.parcels) + '</td>' +
           '<td data-l="Instructions">' + esc(s.instructions) + '</td>' +
           '<td class="num" data-l="Pay">' + pay + '</td>' +
@@ -433,7 +433,7 @@
     return '<div class="sumgrid"><div><div class="wtitle">Collect from</div><table class="tbl"><thead><tr><th>Merchant</th><th>Orders</th><th class="num">Parcels</th></tr></thead><tbody>' +
       list.map(function (p) { return '<tr><td><b>' + esc(p.name) + '</b><span class="sub">' + esc(p.address) + '</span></td><td class="small">' + p.ids.map(esc).join(', ') + '</td><td class="num">' + p.parcels + '</td></tr>'; }).join('') +
       '</tbody></table></div><div><div class="wtitle">Deliver to</div><table class="tbl"><thead><tr><th>Order</th><th>Customer</th><th>Slot</th><th class="num">Parcels</th></tr></thead><tbody>' +
-      dels.map(function (s) { return '<tr><td class="id">' + esc(s.ref) + '</td><td>' + esc(s.name) + '</td><td class="small">' + esc(s.order.deliverySlot || s.time) + '</td><td class="num">' + (s.parcels == null ? '' : s.parcels) + '</td></tr>'; }).join('') +
+      dels.map(function (s) { return '<tr><td class="id">' + esc(s.ref) + '</td><td>' + esc(s.name) + '</td><td class="small">' + esc(s.slot || s.time) + '</td><td class="num">' + (s.parcels == null ? '' : s.parcels) + '</td></tr>'; }).join('') +
       '</tbody></table></div></div>';
   }
 
